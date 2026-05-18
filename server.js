@@ -1,0 +1,566 @@
+const express = require("express");
+
+const cors = require("cors");
+
+const { createClient } =
+
+require("@supabase/supabase-js");
+
+// ==========================
+// FETCH
+// ==========================
+
+const fetch = (...args) =>
+
+import("node-fetch")
+
+.then(({default: fetch}) =>
+
+fetch(...args)
+);
+
+// ==========================
+// APP
+// ==========================
+
+const app = express();
+
+app.use(cors());
+
+app.use(express.static(__dirname));
+
+// ==========================
+// SUPABASE
+// ==========================
+
+const supabase = createClient(
+
+  "https://tjqlwmtxzwqdjziqukcc.supabase.co",
+
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRqcWx3bXR4endxZGp6aXF1a2NjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg2OTM3NTMsImV4cCI6MjA5NDI2OTc1M30.8cojvxD4NzULayU5VvhQCfrehiXWeji05UdtCFnIgSA"
+);
+// ==========================
+// BINANCE
+// ==========================
+
+async function getBinance(
+
+  fiat = "ARS",
+
+  tradeType = "BUY",
+
+  rows = 3
+){
+
+  try{
+
+    const response = await fetch(
+
+      "https://p2p.binance.com/bapi/c2c/v2/friendly/c2c/adv/search",
+
+      {
+
+        method:"POST",
+
+        headers:{
+
+          "Content-Type":"application/json"
+        },
+
+        body: JSON.stringify({
+
+          asset:"USDT",
+
+          fiat,
+
+          tradeType,
+
+          page:1,
+
+          rows
+        })
+      }
+    );
+
+    const data =
+
+      await response.json();
+
+    if(!data.data){
+
+      return [];
+    }
+
+    return data.data.map(
+
+      x => parseFloat(
+        x.adv.price
+      )
+    );
+
+  }catch(e){
+
+    console.log(e);
+
+    return [];
+  }
+}
+
+// ==========================
+// P2P BOB
+// ==========================
+
+async function getP2P_BOB(){
+
+  try{
+
+    const compraData =
+
+      await getBinance(
+        "BOB",
+        "SELL",
+        3
+      );
+
+    const ventaData =
+
+      await getBinance(
+        "BOB",
+        "BUY",
+        3
+      );
+
+    return {
+
+      compra:
+      Math.min(...compraData),
+
+      venta:
+      Math.max(...ventaData)
+    };
+
+  }catch(e){
+
+    console.log(e);
+
+    return null;
+  }
+}
+
+// ==========================
+// P2P ARS
+// ==========================
+
+async function getP2P_ARS(){
+
+  try{
+
+    const compraData =
+
+      await getBinance(
+        "ARS",
+        "SELL",
+        3
+      );
+
+    const ventaData =
+
+      await getBinance(
+        "ARS",
+        "BUY",
+        3
+      );
+
+    return {
+
+      compra:
+      Math.min(...compraData),
+
+      venta:
+      Math.max(...ventaData)
+    };
+
+  }catch(e){
+
+    console.log(e);
+
+    return null;
+  }
+}
+
+// ==========================
+// GUARDAR SUPABASE
+// ==========================
+
+async function guardarHistorial(
+
+  moneda,
+
+  compra,
+
+  venta
+){
+
+  const { error } =
+
+    await supabase
+
+    .from("cotizaciones")
+
+    .insert([{
+
+      moneda,
+
+      compra,
+
+      venta
+
+    }]);
+
+  if(error){
+
+    console.log(error);
+  }
+}
+
+// ==========================
+// OBTENER HISTORIAL
+// ==========================
+
+async function obtenerHistorial(
+
+  moneda,
+
+  rango
+){
+
+  let dias = 1;
+
+  if(rango === "semana"){
+
+    dias = 7;
+  }
+
+  if(rango === "mes"){
+
+    dias = 30;
+  }
+
+  const fecha = new Date(
+
+    Date.now() -
+
+    dias * 24 * 60 * 60 * 1000
+
+  ).toISOString();
+
+  const { data, error } =
+
+    await supabase
+
+    .from("cotizaciones")
+
+    .select("*")
+
+    .eq("moneda", moneda)
+
+    .gte("fecha", fecha)
+
+    .order("fecha");
+
+  if(error){
+
+    console.log(error);
+
+    return [];
+  }
+
+  return data;
+}
+
+// ==========================
+// GUARDAR AUTOMÁTICO
+// ==========================
+
+async function actualizarHistorial(){
+
+  try{
+
+    console.log(
+      "Guardando..."
+    );
+
+    // API ARG
+
+    const r1 = await fetch(
+
+      "https://api.bluelytics.com.ar/v2/latest"
+    );
+
+    const d1 = await r1.json();
+
+    // CRIPTO
+
+    const cripto =
+
+      await getP2P_ARS();
+
+    // BOLIVIA
+
+    const p2p =
+
+      await getP2P_BOB();
+
+    // ARS → BOB
+
+    let ars_bob = {
+
+      compra:null,
+
+      venta:null
+    };
+
+    if(
+
+      cripto &&
+      p2p
+
+    ){
+
+      ars_bob.compra =
+
+        Number(
+
+          (
+            p2p.compra /
+            cripto.venta
+          ).toFixed(5)
+        );
+
+      ars_bob.venta =
+
+        Number(
+
+          (
+            p2p.venta /
+            cripto.compra
+          ).toFixed(5)
+        );
+    }
+
+    // GUARDAR
+
+    await guardarHistorial(
+
+      "azul",
+
+      d1.blue.value_buy,
+
+      d1.blue.value_sell
+    );
+
+    await guardarHistorial(
+
+      "oficial",
+
+      d1.oficial.value_buy,
+
+      d1.oficial.value_sell
+    );
+
+    await guardarHistorial(
+
+      "cripto_ars",
+
+      cripto.compra,
+
+      cripto.venta
+    );
+
+    await guardarHistorial(
+
+      "p2p_bob",
+
+      p2p.compra,
+
+      p2p.venta
+    );
+
+    await guardarHistorial(
+
+      "ars_bob",
+
+      ars_bob.compra,
+
+      ars_bob.venta
+    );
+
+    console.log(
+      "Guardado OK"
+    );
+
+  }catch(e){
+
+    console.log(e);
+  }
+}
+
+// ==========================
+// API
+// ==========================
+
+app.get("/dolar", async(req,res)=>{
+
+  try{
+
+    let rango =
+
+      req.query.rango || "dia";
+
+    // ACTUAL
+
+    const r1 = await fetch(
+
+      "https://api.bluelytics.com.ar/v2/latest"
+    );
+
+    const d1 = await r1.json();
+
+    const cripto =
+
+      await getP2P_ARS();
+
+    const p2p =
+
+      await getP2P_BOB();
+
+    let ars_bob = {
+
+      compra:
+      Number(
+        (
+          p2p.compra /
+          cripto.venta
+        ).toFixed(5)
+      ),
+
+      venta:
+      Number(
+        (
+          p2p.venta /
+          cripto.compra
+        ).toFixed(5)
+      )
+    };
+
+    // HISTORIAL
+
+    const historial = {
+
+      azul:
+
+        await obtenerHistorial(
+          "azul",
+          rango
+        ),
+
+      oficial:
+
+        await obtenerHistorial(
+          "oficial",
+          rango
+        ),
+
+      cripto_ars:
+
+        await obtenerHistorial(
+          "cripto_ars",
+          rango
+        ),
+
+      p2p_bob:
+
+        await obtenerHistorial(
+          "p2p_bob",
+          rango
+        ),
+
+      ars_bob:
+
+        await obtenerHistorial(
+          "ars_bob",
+          rango
+        )
+    };
+
+    // RESPUESTA
+
+    res.json({
+
+      actual:{
+
+        azul:{
+          valor_compra:
+          d1.blue.value_buy,
+
+          valor_venta:
+          d1.blue.value_sell
+        },
+
+        oficial:{
+          valor_compra:
+          d1.oficial.value_buy,
+
+          valor_venta:
+          d1.oficial.value_sell
+        },
+
+        cripto_ars:cripto,
+
+        p2p_bob:p2p,
+
+        ars_bob
+      },
+
+      historial
+    });
+
+  }catch(e){
+
+    console.log(e);
+
+    res.status(500).json({
+
+      error:"Error"
+    });
+  }
+});
+
+// ==========================
+// ACTUALIZAR CADA 5 MIN
+// ==========================
+
+actualizarHistorial();
+
+setInterval(
+
+  actualizarHistorial,
+
+  5 * 60 * 1000
+);
+
+// ==========================
+// SERVER
+// ==========================
+
+const PORT =
+
+process.env.PORT || 3000;
+
+app.listen(PORT, ()=>{
+
+  console.log(
+
+    "Servidor iniciado"
+  );
+});

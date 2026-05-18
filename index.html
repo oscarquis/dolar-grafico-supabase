@@ -1,0 +1,707 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+
+<meta charset="UTF-8">
+
+<meta name="viewport"
+content="width=device-width, initial-scale=1.0">
+
+<title>Dólar Gráfico</title>
+
+<!-- CHART -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<!-- HAMMER -->
+<script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8"></script>
+
+<!-- ZOOM -->
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom"></script>
+
+<style>
+
+body{
+
+  margin:0;
+
+  padding:8px;
+
+  background:#111;
+
+  color:white;
+
+  font-family:Arial;
+}
+
+h1{
+
+  text-align:center;
+
+  margin-bottom:10px;
+
+  font-size:22px;
+}
+
+/* =====================
+CARDS PEQUEÑAS
+===================== */
+
+#cards{
+
+  display:grid;
+
+  grid-template-columns:
+  repeat(auto-fit,minmax(100px,1fr));
+
+  gap:6px;
+
+  margin-bottom:10px;
+}
+
+.card{
+
+  background:#222;
+
+  border-radius:10px;
+
+  padding:6px;
+
+  text-align:center;
+}
+
+.card h3{
+
+  font-size:12px;
+
+  margin:2px 0;
+}
+
+.valor{
+
+  font-size:14px;
+
+  font-weight:bold;
+}
+
+.card div{
+
+  font-size:12px;
+}
+
+/* =====================
+BOTONES
+===================== */
+
+#botones,
+#rangos{
+
+  display:flex;
+
+  flex-wrap:wrap;
+
+  gap:6px;
+
+  justify-content:center;
+
+  margin-bottom:10px;
+}
+
+button{
+
+  border:none;
+
+  padding:6px 10px;
+
+  border-radius:8px;
+
+  background:#333;
+
+  color:white;
+
+  cursor:pointer;
+
+  font-size:12px;
+}
+
+.activo{
+
+  background:lime;
+
+  color:black;
+}
+
+.activoRango{
+
+  background:orange;
+
+  color:black;
+}
+
+/* =====================
+GRAFICO
+===================== */
+
+#graficoBox{
+
+  background:#222;
+
+  border-radius:12px;
+
+  padding:8px;
+
+  height:420px;
+}
+
+canvas{
+
+  width:100% !important;
+
+  height:100% !important;
+}
+
+</style>
+
+</head>
+
+<body>
+
+<h1>📈 Cotización Dólar</h1>
+
+<!-- =====================
+CARDS
+===================== -->
+
+<div id="cards">
+
+<div class="card">
+
+<h3>Blue</h3>
+
+<div id="blue_c"
+class="valor"></div>
+
+<div id="blue_v"></div>
+
+</div>
+
+<div class="card">
+
+<h3>Oficial</h3>
+
+<div id="oficial_c"
+class="valor"></div>
+
+<div id="oficial_v"></div>
+
+</div>
+
+<div class="card">
+
+<h3>Cripto</h3>
+
+<div id="cripto_c"
+class="valor"></div>
+
+<div id="cripto_v"></div>
+
+</div>
+
+<div class="card">
+
+<h3>P2P Bolivia</h3>
+
+<div id="p2p_c"
+class="valor"></div>
+
+<div id="p2p_v"></div>
+
+</div>
+
+<div class="card">
+
+<h3>ARS → Bs</h3>
+
+<div id="ars_c"
+class="valor"></div>
+
+<div id="ars_v"></div>
+
+</div>
+
+</div>
+
+<!-- =====================
+BOTONES MONEDAS
+===================== -->
+
+<div id="botones">
+
+<button
+class="activo"
+onclick="cambiar('azul')">
+
+Blue
+
+</button>
+
+<button
+onclick="cambiar('oficial')">
+
+Oficial
+
+</button>
+
+<button
+onclick="cambiar('cripto_ars')">
+
+Cripto
+
+</button>
+
+<button
+onclick="cambiar('p2p_bob')">
+
+P2P Bolivia
+
+</button>
+
+<button
+onclick="cambiar('ars_bob')">
+
+ARS → Bs
+
+</button>
+
+</div>
+
+<!-- =====================
+RANGOS
+===================== -->
+
+<div id="rangos">
+
+<button
+class="activoRango"
+onclick="cambiarRango('dia')">
+
+Día
+
+</button>
+
+<button
+onclick="cambiarRango('semana')">
+
+Semana
+
+</button>
+
+<button
+onclick="cambiarRango('mes')">
+
+Mes
+
+</button>
+
+</div>
+
+<!-- =====================
+GRAFICO
+===================== -->
+
+<div id="graficoBox">
+
+<canvas id="grafico"></canvas>
+
+</div>
+
+<script>
+
+// registrar zoom
+Chart.register(ChartZoom);
+
+// =====================
+// VARIABLES
+// =====================
+
+let chart;
+
+let moneda = "azul";
+
+let rango = "dia";
+
+// =====================
+// CARGAR DATOS
+// =====================
+
+async function cargar(){
+
+  try{
+
+    let res =
+      await fetch(
+        "/dolar?rango=" + rango
+      );
+
+    let data =
+      await res.json();
+
+    let actual =
+      data.actual;
+
+    // =================
+    // ACTUALES
+    // =================
+
+    blue_c.innerText =
+      "C " +
+      actual.azul.valor_compra;
+
+    blue_v.innerText =
+      "V " +
+      actual.azul.valor_venta;
+
+    oficial_c.innerText =
+      "C " +
+      actual.oficial.valor_compra;
+
+    oficial_v.innerText =
+      "V " +
+      actual.oficial.valor_venta;
+
+    cripto_c.innerText =
+      "C " +
+      actual.cripto_ars.compra;
+
+    cripto_v.innerText =
+      "V " +
+      actual.cripto_ars.venta;
+
+    p2p_c.innerText =
+      "C " +
+      actual.p2p_bob.compra;
+
+    p2p_v.innerText =
+      "V " +
+      actual.p2p_bob.venta;
+
+    ars_c.innerText =
+      "C " +
+      actual.ars_bob.compra
+      .toFixed(5);
+
+    ars_v.innerText =
+      "V " +
+      actual.ars_bob.venta
+      .toFixed(5);
+
+    // =================
+    // GRAFICO
+    // =================
+
+    actualizarGrafico(
+      data.historial[moneda]
+    );
+
+  }catch(e){
+
+    console.log(e);
+  }
+}
+
+// =====================
+// ACTUALIZAR GRAFICO
+// =====================
+
+function actualizarGrafico(datos){
+
+  let labels =
+
+    datos.map(
+
+      x =>
+
+        //new Date(x.tiempo)
+new Date(x.fecha)
+        .toLocaleString()
+    );
+
+  let compra =
+
+    datos.map(
+      x => x.compra
+    );
+
+  let venta =
+
+    datos.map(
+      x => x.venta
+    );
+
+  // =====================
+  // CREAR SOLO 1 VEZ
+  // =====================
+
+  if(!chart){
+
+    chart = new Chart(
+
+      document
+      .getElementById("grafico"),
+
+      {
+
+        type:"line",
+
+        data:{
+
+          labels,
+
+          datasets:[
+
+            {
+
+              label:"Compra",
+
+              data:compra,
+
+              borderWidth:2,
+
+              tension:0.3
+            },
+
+            {
+
+              label:"Venta",
+
+              data:venta,
+
+              borderWidth:2,
+
+              tension:0.3
+            }
+          ]
+        },
+
+        options:{
+
+          animation:{
+
+            duration:600
+          },
+
+          responsive:true,
+
+          maintainAspectRatio:false,
+
+          interaction:{
+
+            mode:"index",
+
+            intersect:false
+          },
+
+          plugins:{
+
+            legend:{
+
+              labels:{
+
+                color:"white"
+              }
+            },
+
+/*
+tooltip:{
+
+  callbacks:{
+
+    label:function(context){
+
+      return context.dataset.label +
+
+      ": " +
+
+      Number(
+        context.parsed.y
+      ).toFixed(5);
+    }
+  }
+},
+*/
+tooltip:{
+
+  callbacks:{
+
+    label:function(context){
+
+      return context.dataset.label +
+
+      ": " +
+
+      (
+
+        context.parsed.y < 1
+
+        ? Number(
+            context.parsed.y
+          ).toFixed(5)
+
+        : context.parsed.y
+      );
+    }
+  }
+},
+             zoom:{
+
+              pan:{
+
+                enabled:true,
+
+                mode:"x"
+              },
+
+              zoom:{
+
+                wheel:{
+
+                  enabled:true
+                },
+
+                pinch:{
+
+                  enabled:true
+                },
+
+                drag:{
+
+                  enabled:true
+                },
+
+                mode:"x"
+              }
+            }
+          },
+
+          scales:{
+
+            x:{
+
+              ticks:{
+
+                color:"white"
+              }
+            },
+
+            y:{
+
+              ticks:{
+
+                color:"white"
+              }
+            }
+          }
+        }
+      }
+    );
+
+    return;
+  }
+
+  // =====================
+  // ACTUALIZAR DATOS
+  // =====================
+
+  chart.data.labels =
+    labels;
+
+  chart.data.datasets[0].data =
+    compra;
+
+  chart.data.datasets[1].data =
+    venta;
+
+  chart.update();
+}
+
+// =====================
+// CAMBIAR MONEDA
+// =====================
+
+function cambiar(m){
+
+  moneda = m;
+
+  document
+  .querySelectorAll(
+    "#botones button"
+  )
+  .forEach(b=>
+
+    b.classList.remove(
+      "activo"
+    )
+  );
+
+  event.target
+  .classList.add(
+    "activo"
+  );
+
+  cargar();
+}
+
+// =====================
+// CAMBIAR RANGO
+// =====================
+
+function cambiarRango(r){
+
+  rango = r;
+
+  document
+  .querySelectorAll(
+    "#rangos button"
+  )
+  .forEach(b=>
+
+    b.classList.remove(
+      "activoRango"
+    )
+  );
+
+  event.target
+  .classList.add(
+    "activoRango"
+  );
+
+  cargar();
+}
+
+// =====================
+// RESET ZOOM
+// =====================
+
+document
+.getElementById("grafico")
+.ondblclick = ()=>{
+
+  if(chart){
+
+    chart.resetZoom();
+  }
+};
+
+// =====================
+// AUTO ACTUALIZAR
+// =====================
+
+setInterval(cargar,60000);
+
+cargar();
+
+</script>
+
+</body>
+
+</html>
