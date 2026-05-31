@@ -227,57 +227,151 @@ async function guardarHistorial(
 // OBTENER HISTORIAL
 // ==========================
 
+
+
 async function obtenerHistorial(
-
   moneda,
-
   rango
 ){
 
   let dias = 1;
 
   if(rango === "semana"){
-
     dias = 7;
   }
 
   if(rango === "mes"){
-
     dias = 30;
   }
 
   const fecha = new Date(
-
     Date.now() -
-
     dias * 24 * 60 * 60 * 1000
-
   ).toISOString();
 
-  const { data, error } =
+  // DESCARGAR TODOS LOS REGISTROS
+  let todos = [];
+  let desde = 0;
+  const lote = 1000;
 
-    await supabase
+  while(true){
 
-    .from("cotizaciones")
+    const { data, error } = await supabase
+      .from("cotizaciones")
+      .select("*")
+      .eq("moneda", moneda)
+      .gte("fecha", fecha)
+      .order("fecha", {
+        ascending: false
+      })
+      .range(
+        desde,
+        desde + lote - 1
+      );
 
-    .select("*")
+    if(error){
+      console.log(error);
+      return [];
+    }
 
-    .eq("moneda", moneda)
+    if(!data || data.length === 0){
+      break;
+    }
 
-    .gte("fecha", fecha)
+    todos.push(...data);
 
-    .order("fecha");
+    if(data.length < lote){
+      break;
+    }
 
-  if(error){
-
-    console.log(error);
-
-    return [];
+    desde += lote;
   }
 
-  return data;
-}
+  console.log(
+    "Moneda:",
+    moneda
+  );
 
+  console.log(
+    "Total descargados:",
+    todos.length
+  );
+
+  console.log(
+    "Más reciente:",
+    todos[0]?.fecha
+  );
+
+  console.log(
+    "Más antiguo:",
+    todos[todos.length - 1]?.fecha
+  );
+
+  // DÍA → todos los registros
+  if(rango === "dia"){
+    return todos.reverse();
+  }
+
+  // SEMANA → 1 registro por hora
+  if(rango === "semana"){
+
+    const porHora = new Map();
+
+    todos.forEach(item => {
+
+      const hora =
+        item.fecha.substring(0, 13);
+
+      if(!porHora.has(hora)){
+        porHora.set(hora, item);
+      }
+
+    });
+
+    const resultado =
+      Array.from(
+        porHora.values()
+      ).reverse();
+
+    console.log(
+      "Semana (1 por hora):",
+      resultado.length
+    );
+
+    return resultado;
+  }
+
+  // MES → 1 registro por hora
+  if(rango === "mes"){
+
+    const porHora = new Map();
+
+    todos.forEach(item => {
+
+      const hora =
+        item.fecha.substring(0, 13);
+
+      if(!porHora.has(hora)){
+        porHora.set(hora, item);
+      }
+
+    });
+
+    const resultado =
+      Array.from(
+        porHora.values()
+      ).reverse();
+
+    console.log(
+      "Mes (1 por hora):",
+      resultado.length
+    );
+
+    return resultado;
+  }
+
+  return todos.reverse();
+}
 // ==========================
 // GUARDAR AUTOMÁTICO
 // ==========================
@@ -493,6 +587,20 @@ app.get("/dolar", async(req,res)=>{
         )
     };
 
+console.log(
+  "Primera:",
+  historial.azul[0]?.fecha
+);
+
+console.log(
+  "Última:",
+  historial.azul[historial.azul.length - 1]?.fecha
+);
+
+console.log(
+  "Cantidad:",
+  historial.azul.length
+);
     // RESPUESTA
 
     res.json({
@@ -546,7 +654,7 @@ setInterval(
 
   actualizarHistorial,
 
-  5 * 60 * 1000
+  10 * 60 * 1000
 );
 
 // ==========================

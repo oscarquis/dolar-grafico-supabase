@@ -1,0 +1,37 @@
+{
+  "azul": [
+    {
+      "tiempo": 1779920538645,
+      "compra": 1420,
+      "venta": 1440
+    }
+  ],
+  "oficial": [
+    {
+      "tiempo": 1779920538649,
+      "compra": 1378,
+      "venta": 1430
+    }
+  ],
+  "cripto_ars": [
+    {
+      "tiempo": 1779920538649,
+      "compra": 1478,
+      "venta": 1481.8
+    }
+  ],
+  "p2p_bob": [
+    {
+      "tiempo": 1779920538649,
+      "compra": 9.93,
+      "venta": 9.96
+    }
+  ],
+  "ars_bob": [
+    {
+      "tiempo": 1779920538649,
+      "compra": 0.0067,
+      "venta": 0.00674
+    }
+  ]
+}
