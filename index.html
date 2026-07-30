@@ -220,6 +220,16 @@ class="valor"></div>
 
 <div class="card">
 
+<h3>BCB</h3>
+
+<div id="bcb_c"
+class="valor"></div>
+<div id="bcb_v"></div>
+
+</div>
+
+<div class="card">
+
 <h3>ARS → Bs</h3>
 
 <div id="ars_c"
@@ -265,7 +275,12 @@ onclick="cambiar('p2p_bob')">
 P2P Bolivia
 
 </button>
+<button
+onclick="cambiar('bcb')">
 
+BCB
+
+</button>
 <button
 onclick="cambiar('ars_bob')">
 
@@ -303,6 +318,7 @@ Mes
 
 </button>
 
+<button onclick="cambiarRango('anio')">Año</button>
 </div>
 
 <!-- =====================
@@ -384,6 +400,15 @@ async function cargar(){
     p2p_v.innerText =
       "V " +
       actual.p2p_bob.venta;
+
+bcb_c.innerText =
+      "C " +
+      actual.bcb.compra;
+
+    bcb_v.innerText =
+      "V " +
+      actual.bcb.venta;
+
 
     ars_c.innerText =
       "C " +
@@ -705,3 +730,4 @@ cargar();
 </body>
 
 </html>
+

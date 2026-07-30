@@ -1,7 +1,7 @@
 const express = require("express");
 
 const cors = require("cors");
-
+const axios = require("axios");
 const { createClient } =
 
 require("@supabase/supabase-js");
@@ -187,6 +187,48 @@ async function getP2P_ARS(){
     return null;
   }
 }
+// =====================================
+// bcb
+// =====================================
+async function getBCB(){
+
+  try{
+
+    const { data } = await axios.get(
+      "https://deudaexternapublica.bcb.gob.bo/publico/tipos-cambio/ultimos-indicadores",
+      {
+        headers:{
+          "User-Agent":"Mozilla/5.0"
+        }
+      }
+    );
+
+    const fecha =
+      data.match(/FECHA DE LA COTIZACIÓN:[\s\S]*?<strong><u>(.*?)<\/u>/i)?.[1]
+      ?.replace(/&eacute;/g,"é") || null;
+
+    const compra =
+      data.match(/ESTADOS UNIDOS[\s\S]*?DÓLAR COMPRA[\s\S]*?<td align="right">([\d,]+)<\/td>/i)?.[1]
+      ?.replace(",", ".");
+
+    const venta =
+      data.match(/ESTADOS UNIDOS[\s\S]*?DÓLAR VENTA[\s\S]*?<td align="right">([\d,]+)<\/td>/i)?.[1]
+      ?.replace(",", ".");
+
+    return {
+      compra,
+      venta,
+      fecha
+    };
+
+  }catch(e){
+
+    console.log(e);
+
+    return null;
+  }
+
+}
 
 // ==========================
 // GUARDAR SUPABASE
@@ -243,7 +285,9 @@ async function obtenerHistorial(
   if(rango === "mes"){
     dias = 30;
   }
-
+if(rango === "anio"){
+  dias = 365;
+}
   const fecha = new Date(
     Date.now() -
     dias * 24 * 60 * 60 * 1000
@@ -370,8 +414,38 @@ async function obtenerHistorial(
     return resultado;
   }
 
+
+// AÑO → 1 registro por día
+if(rango === "anio"){
+
+  const porDia = new Map();
+
+  todos.forEach(item => {
+
+    const dia = item.fecha.substring(0, 10);
+
+    if(!porDia.has(dia)){
+      porDia.set(dia, item);
+    }
+
+  });
+
+  const resultado =
+    Array.from(
+      porDia.values()
+    ).reverse();
+
+  console.log(
+    "Año (1 por día):",
+    resultado.length
+  );
+
+  return resultado;
+}
   return todos.reverse();
 }
+
+
 // ==========================
 // GUARDAR AUTOMÁTICO
 // ==========================
@@ -404,6 +478,10 @@ async function actualizarHistorial(){
     const p2p =
 
       await getP2P_BOB();
+   // Bcb
+    const bcb =
+
+      await getBCB();
 
     // ARS → BOB
 
@@ -482,6 +560,15 @@ async function actualizarHistorial(){
 
     await guardarHistorial(
 
+      "bcb",
+
+      bcb.compra,
+
+      bcb.venta
+    );
+
+    await guardarHistorial(
+
       "ars_bob",
 
       ars_bob.compra,
@@ -527,7 +614,13 @@ app.get("/dolar", async(req,res)=>{
     const p2p =
 
       await getP2P_BOB();
+    // =================================
+    // bcb
+    // =================================
 
+
+
+const bcb = await getBCB();
     let ars_bob = {
 
       compra:
@@ -578,7 +671,12 @@ app.get("/dolar", async(req,res)=>{
           "p2p_bob",
           rango
         ),
+bcb:
 
+        await obtenerHistorial(
+          "bcb",
+          rango
+        ),
       ars_bob:
 
         await obtenerHistorial(
@@ -626,7 +724,7 @@ console.log(
         cripto_ars:cripto,
 
         p2p_bob:p2p,
-
+bcb:bcb,
         ars_bob
       },
 
