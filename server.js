@@ -444,7 +444,70 @@ if(rango === "anio"){
 }
   return todos.reverse();
 }
+// ==========================
+// VERIFICAR VARIACIÓN ARS → BOB
+// ==========================
 
+async function revisarVariacionARSBOB() {
+
+  try {
+
+    const { data, error } = await supabase
+      .from("cotizaciones")
+      .select("compra, venta, fecha")
+      .eq("moneda", "ars_bob")
+      .order("fecha", { ascending: false })
+      .limit(2);
+
+    if (error) {
+      console.log("Error consultando ARS → BOB:", error);
+      return;
+    }
+
+    if (!data || data.length < 2) {
+      console.log("Todavía no hay suficientes registros para comparar.");
+      return;
+    }
+
+    const actual = data[0];
+    const anterior = data[1];
+
+    const ventaActual = Number(actual.venta);
+    const ventaAnterior = Number(anterior.venta);
+
+    if (
+      !ventaActual ||
+      !ventaAnterior ||
+      ventaAnterior <= 0
+    ) {
+      console.log("Valores ARS → BOB inválidos.");
+      return;
+    }
+
+    const variacion =
+      ((ventaActual - ventaAnterior) /
+        ventaAnterior) * 100;
+
+    console.log("=================================");
+    console.log("📊 ARS → BOB");
+    console.log("Anterior:", ventaAnterior);
+    console.log("Actual:", ventaActual);
+    console.log(
+      "Variación:",
+      variacion.toFixed(2) + "%"
+    );
+    console.log("=================================");
+
+  } catch (e) {
+
+    console.log(
+      "Error verificando variación ARS → BOB:",
+      e
+    );
+
+  }
+
+}
 
 // ==========================
 // GUARDAR AUTOMÁTICO
@@ -575,6 +638,8 @@ async function actualizarHistorial(){
 
       ars_bob.venta
     );
+// VERIFICAR VARIACIÓN
+await revisarVariacionARSBOB();
 
     console.log(
       "Guardado OK"
@@ -770,3 +835,4 @@ app.listen(PORT, ()=>{
     "Servidor iniciado"
   );
 });
+
