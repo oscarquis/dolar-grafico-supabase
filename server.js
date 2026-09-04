@@ -497,7 +497,58 @@ async function revisarVariacionARSBOB() {
       variacion.toFixed(2) + "%"
     );
     console.log("=================================");
+    // ==========================
+    // REVISAR SUSCRIPTORES
+    // ==========================
 
+    const { data: suscriptores, error: errorSuscriptores } =
+      await supabase
+        .from("suscriptores_whatsapp")
+        .select("telefono, variacion_alerta")
+        .eq("activo", true);
+
+    if (errorSuscriptores) {
+      console.log(
+        "Error consultando suscriptores:",
+        errorSuscriptores
+      );
+      return;
+    }
+
+    if (!suscriptores || suscriptores.length === 0) {
+      console.log("No hay suscriptores activos.");
+      return;
+    }
+
+    const variacionAbsoluta = Math.abs(variacion);
+
+    for (const suscriptor of suscriptores) {
+
+      const limite = Number(suscriptor.variacion_alerta);
+
+      if (
+        limite > 0 &&
+        variacionAbsoluta >= limite
+      ) {
+
+        console.log(
+          "🔔 ALERTA PARA:",
+          suscriptor.telefono
+        );
+
+        console.log(
+          "Límite:",
+          limite + "%"
+        );
+
+        console.log(
+          "Variación:",
+          variacionAbsoluta.toFixed(2) + "%"
+        );
+
+      }
+
+    }
   } catch (e) {
 
     console.log(
