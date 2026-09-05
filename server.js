@@ -2,6 +2,101 @@ const express = require("express");
 
 const cors = require("cors");
 const axios = require("axios");
+// =====================================
+// ENVIAR PLANTILLA WHATSAPP
+// =====================================
+
+const META_PHONE_NUMBER_ID =
+  process.env.META_PHONE_NUMBER_ID;
+
+const META_ACCESS_TOKEN =
+  process.env.META_ACCESS_TOKEN;
+
+async function enviarPlantillaWhatsApp(
+  telefono,
+  variacion,
+  valorAnterior,
+  valorActual
+) {
+
+  try {
+
+    const url =
+      `https://graph.facebook.com/v25.0/${META_PHONE_NUMBER_ID}/messages`;
+
+    const respuesta = await axios.post(
+      url,
+      {
+        messaging_product: "whatsapp",
+
+        to: telefono,
+
+        type: "template",
+
+        template: {
+          name: "alerta_dolar_variacion",
+
+          language: {
+            code: "es_AR"
+          },
+
+          components: [
+            {
+              type: "body",
+
+              parameters: [
+                {
+                  type: "text",
+                  text: variacion.toFixed(2)
+                },
+                {
+                  type: "text",
+                  text: valorAnterior.toFixed(5)
+                },
+                {
+                  type: "text",
+                  text: valorActual.toFixed(5)
+                }
+              ]
+            }
+          ]
+        }
+      },
+      {
+        headers: {
+          Authorization:
+            `Bearer ${META_ACCESS_TOKEN}`,
+
+          "Content-Type":
+            "application/json"
+        }
+      }
+    );
+
+    console.log(
+      "✅ WhatsApp enviado:",
+      telefono
+    );
+
+    console.log(
+      "ID mensaje:",
+      respuesta.data?.messages?.[0]?.id
+    );
+
+    return respuesta.data;
+
+  } catch (error) {
+
+    console.log(
+      "❌ Error enviando WhatsApp:",
+      error.response?.data ||
+      error.message
+    );
+
+    return null;
+  }
+}
+
 const { createClient } =
 
 require("@supabase/supabase-js");
@@ -504,7 +599,7 @@ async function revisarVariacionARSBOB() {
     const { data: suscriptores, error: errorSuscriptores } =
       await supabase
         .from("suscriptores_whatsapp")
-        .select("telefono, variacion_alerta")
+.select("telefono, variacion_alerta, ultima_alerta")        
         .eq("activo", true);
 
     if (errorSuscriptores) {
@@ -522,34 +617,127 @@ async function revisarVariacionARSBOB() {
 
     const variacionAbsoluta = Math.abs(variacion);
 
-    for (const suscriptor of suscriptores) {
+        for (const suscriptor of suscriptores) {
 
-      const limite = Number(suscriptor.variacion_alerta);
+      const limite = Number(
+        suscriptor.variacion_alerta
+      );
 
-      if (
-        limite > 0 &&
-        variacionAbsoluta >= limite
-      ) {
+      if (limite <= 0) {
+        continue;
+      }
+
+      // =================================
+      // SI NO SUPERA EL LÍMITE
+      // PREPARAR PARA UNA NUEVA ALERTA
+      // =================================
+
+      if (variacionAbsoluta < limite) {
+
+        if (suscriptor.ultima_alerta) {
+
+          await supabase
+            .from("suscriptores_whatsapp")
+            .update({
+              ultima_alerta: null
+            })
+            .eq(
+              "telefono",
+              suscriptor.telefono
+            );
+
+          console.log(
+            "🔄 Alerta reiniciada:",
+            suscriptor.telefono
+          );
+        }
+
+        continue;
+      }
+
+      // =================================
+      // YA SUPERA EL LÍMITE
+      // =================================
+
+      if (suscriptor.ultima_alerta) {
 
         console.log(
-          "🔔 ALERTA PARA:",
+          "⏭️ Alerta ya enviada:",
           suscriptor.telefono
         );
 
-        console.log(
-          "Límite:",
-          limite + "%"
-        );
-
-        console.log(
-          "Variación:",
-          variacionAbsoluta.toFixed(2) + "%"
-        );
-
+        continue;
       }
 
-    }
-  } catch (e) {
+      console.log(
+        "🔔 ALERTA PARA:",
+        suscriptor.telefono
+      );
+
+      console.log(
+        "Límite:",
+        limite + "%"
+      );
+
+      console.log(
+        "Variación:",
+        variacionAbsoluta.toFixed(2) + "%"
+      );
+
+      // =================================
+      // ENVIAR WHATSAPP
+      // =================================
+
+      const resultado =
+        await enviarPlantillaWhatsApp(
+          suscriptor.telefono,
+          variacionAbsoluta,
+          ventaAnterior,
+          ventaActual
+        );
+
+      // =================================
+      // GUARDAR HORA SOLO SI SE ENVIÓ
+      // =================================
+
+      if (resultado) {
+
+        const { error: errorAlerta } =
+          await supabase
+            .from("suscriptores_whatsapp")
+            .update({
+              ultima_alerta: new Date().toISOString()
+            })
+            .eq(
+              "telefono",
+              suscriptor.telefono
+            );
+
+        if (errorAlerta) {
+
+          console.log(
+            "❌ Error guardando ultima_alerta:",
+            errorAlerta
+          );
+
+        } else {
+
+          console.log(
+            "✅ ultima_alerta guardada:",
+            suscriptor.telefono
+          );
+        }
+
+      } else {
+
+        console.log(
+          "⚠️ WhatsApp no se envió; no se registra ultima_alerta."
+        );
+      }
+
+    } 
+
+ } catch (e) {
 
     console.log(
       "Error verificando variación ARS → BOB:",
