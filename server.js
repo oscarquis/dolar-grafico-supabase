@@ -37,7 +37,7 @@ async function enviarPlantillaWhatsApp(
           name: "alerta_dolar_variacion",
 
           language: {
-            code: "es_AR"
+            code: "es"
           },
 
           components: [
