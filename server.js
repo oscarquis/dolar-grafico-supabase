@@ -37,7 +37,7 @@ async function enviarPlantillaWhatsApp(
           name: "alerta_dolar_variacion",
 
           language: {
-            code: "es"
+            code: "es_AR"
           },
 
           components: [
@@ -599,7 +599,7 @@ async function revisarVariacionARSBOB() {
     const { data: suscriptores, error: errorSuscriptores } =
       await supabase
         .from("suscriptores_whatsapp")
-.select("telefono, variacion_alerta, ultima_alerta")        
+.select("telefono, variacion_alerta, valor_referencia, ultima_alerta")        
         .eq("activo", true);
 
     if (errorSuscriptores) {
@@ -615,9 +615,7 @@ async function revisarVariacionARSBOB() {
       return;
     }
 
-    const variacionAbsoluta = Math.abs(variacion);
-
-        for (const suscriptor of suscriptores) {
+    for (const suscriptor of suscriptores) {
 
       const limite = Number(
         suscriptor.variacion_alerta
@@ -627,18 +625,20 @@ async function revisarVariacionARSBOB() {
         continue;
       }
 
-      // =================================
-      // SI NO SUPERA EL LÍMITE
-      // PREPARAR PARA UNA NUEVA ALERTA
-      // =================================
+      let valorReferencia = Number(
+        suscriptor.valor_referencia
+      );
 
-      if (variacionAbsoluta < limite) {
-
-        if (suscriptor.ultima_alerta) {
-
+      // Primer control: establecer referencia sin enviar alerta.
+      if (
+        !Number.isFinite(valorReferencia) ||
+        valorReferencia <= 0
+      ) {
+        const { error: errorReferencia } =
           await supabase
             .from("suscriptores_whatsapp")
             .update({
+              valor_referencia: ventaActual,
               ultima_alerta: null
             })
             .eq(
@@ -646,26 +646,54 @@ async function revisarVariacionARSBOB() {
               suscriptor.telefono
             );
 
+        if (errorReferencia) {
           console.log(
-            "🔄 Alerta reiniciada:",
-            suscriptor.telefono
+            "❌ Error guardando valor_referencia:",
+            errorReferencia
+          );
+        } else {
+          console.log(
+            "📌 Referencia inicial:",
+            suscriptor.telefono,
+            ventaActual
           );
         }
 
         continue;
       }
 
-      // =================================
-      // YA SUPERA EL LÍMITE
-      // =================================
+      // Variación acumulada desde la referencia individual.
+      const variacionAcumulada =
+        ((ventaActual - valorReferencia) /
+          valorReferencia) * 100;
 
+      const variacionAbsoluta =
+        Math.abs(variacionAcumulada);
+
+      console.log(
+        "👤",
+        suscriptor.telefono,
+        "Referencia:",
+        valorReferencia,
+        "Actual:",
+        ventaActual,
+        "Variación acumulada:",
+        variacionAcumulada.toFixed(4) + "%",
+        "Límite:",
+        limite + "%"
+      );
+
+      // Todavía no alcanza el límite.
+      if (variacionAbsoluta < limite) {
+        continue;
+      }
+
+      // Ya se envió una alerta para esta referencia.
       if (suscriptor.ultima_alerta) {
-
         console.log(
           "⏭️ Alerta ya enviada:",
           suscriptor.telefono
         );
-
         continue;
       }
 
@@ -679,20 +707,11 @@ async function revisarVariacionARSBOB() {
         limite + "%"
       );
 
-      console.log(
-        "Variación:",
-        variacionAbsoluta.toFixed(2) + "%"
-      );
-
-      // =================================
-      // ENVIAR WHATSAPP
-      // =================================
-
       const resultado =
         await enviarPlantillaWhatsApp(
           suscriptor.telefono,
           variacionAbsoluta,
-          ventaAnterior,
+          valorReferencia,
           ventaActual
         );
 
@@ -706,7 +725,8 @@ async function revisarVariacionARSBOB() {
           await supabase
             .from("suscriptores_whatsapp")
             .update({
-              ultima_alerta: new Date().toISOString()
+              ultima_alerta: new Date().toISOString(),
+              valor_referencia: ventaActual
             })
             .eq(
               "telefono",
