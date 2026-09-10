@@ -689,14 +689,14 @@ async function revisarVariacionARSBOB() {
       }
 
       // Ya se envió una alerta para esta referencia.
-      if (suscriptor.ultima_alerta) {
+      /*if (suscriptor.ultima_alerta) {
         console.log(
           "⏭️ Alerta ya enviada:",
           suscriptor.telefono
         );
         continue;
       }
-
+*/
       console.log(
         "🔔 ALERTA PARA:",
         suscriptor.telefono
