@@ -542,65 +542,65 @@ if(rango === "anio"){
 // ==========================
 // VERIFICAR VARIACIÓN ARS → BOB
 // ==========================
+
 async function revisarVariacionARSBOB() {
 
   try {
 
-    // =================================
-    // OBTENER VALOR ACTUAL DIRECTAMENTE
-    // DESDE BINANCE P2P
-    // =================================
+    const { data, error } = await supabase
+      .from("cotizaciones")
+      .select("compra, venta, fecha")
+      .eq("moneda", "ars_bob")
+      .order("fecha", { ascending: false })
+      .limit(2);
 
-    const cripto = await getP2P_ARS();
-    const p2p = await getP2P_BOB();
-
-    if (!cripto || !p2p) {
-      console.log("❌ No se pudo obtener Binance P2P.");
+    if (error) {
+      console.log("Error consultando ARS → BOB:", error);
       return;
     }
+
+    if (!data || data.length < 2) {
+      console.log("Todavía no hay suficientes registros para comparar.");
+      return;
+    }
+
+    const actual = data[0];
+    const anterior = data[1];
+
+    const ventaActual = Number(actual.venta);
+    const ventaAnterior = Number(anterior.venta);
 
     if (
-      !Number.isFinite(Number(cripto.compra)) ||
-      !Number.isFinite(Number(p2p.venta)) ||
-      Number(cripto.compra) <= 0
+      !ventaActual ||
+      !ventaAnterior ||
+      ventaAnterior <= 0
     ) {
-      console.log("❌ Valores Binance inválidos.");
+      console.log("Valores ARS → BOB inválidos.");
       return;
     }
 
-    const ventaActual = Number(
-      (
-        p2p.venta /
-        cripto.compra
-      ).toFixed(5)
+    const variacion =
+      ((ventaActual - ventaAnterior) /
+        ventaAnterior) * 100;
+
+    console.log("=================================");
+    console.log("📊 ARS → BOB");
+    console.log("Anterior:", ventaAnterior);
+    console.log("Actual:", ventaActual);
+    console.log(
+      "Variación:",
+      variacion.toFixed(2) + "%"
     );
-
-    if (
-      !Number.isFinite(ventaActual) ||
-      ventaActual <= 0
-    ) {
-      console.log("❌ Valor ARS → BOB inválido.");
-      return;
-    }
-
     console.log("=================================");
-    console.log("📊 ARS → BOB — ALERTA");
-    console.log("Actual Binance:", ventaActual);
-    console.log("=================================");
-
-    // =================================
+    // ==========================
     // REVISAR SUSCRIPTORES
-    // =================================
+    // ==========================
 
-    const {
-      data: suscriptores,
-      error: errorSuscriptores
-    } = await supabase
-      .from("suscriptores_whatsapp")
-      .select(
-        "telefono, variacion_alerta, valor_referencia, ultima_alerta"
-      )
-      .eq("activo", true);
+    const { data: suscriptores, error: errorSuscriptores } =
+      await supabase
+        .from("suscriptores_whatsapp")
+.select("telefono, variacion_alerta, valor_referencia, ultima_alerta")        
+        .eq("activo", true);
 
     if (errorSuscriptores) {
       console.log(
@@ -610,17 +610,10 @@ async function revisarVariacionARSBOB() {
       return;
     }
 
-    if (
-      !suscriptores ||
-      suscriptores.length === 0
-    ) {
+    if (!suscriptores || suscriptores.length === 0) {
       console.log("No hay suscriptores activos.");
       return;
     }
-
-    // =================================
-    // REVISAR CADA SUSCRIPTOR
-    // =================================
 
     for (const suscriptor of suscriptores) {
 
@@ -628,10 +621,7 @@ async function revisarVariacionARSBOB() {
         suscriptor.variacion_alerta
       );
 
-      if (
-        !Number.isFinite(limite) ||
-        limite <= 0
-      ) {
+      if (limite <= 0) {
         continue;
       }
 
@@ -639,57 +629,43 @@ async function revisarVariacionARSBOB() {
         suscriptor.valor_referencia
       );
 
-      // =================================
-      // PRIMERA REFERENCIA
-      // =================================
-
+      // Primer control: establecer referencia sin enviar alerta.
       if (
         !Number.isFinite(valorReferencia) ||
         valorReferencia <= 0
       ) {
-
-        const {
-          error: errorReferencia
-        } = await supabase
-          .from("suscriptores_whatsapp")
-          .update({
-            valor_referencia: ventaActual,
-            ultima_alerta: null
-          })
-          .eq(
-            "telefono",
-            suscriptor.telefono
-          );
+        const { error: errorReferencia } =
+          await supabase
+            .from("suscriptores_whatsapp")
+            .update({
+              valor_referencia: ventaActual,
+              ultima_alerta: null
+            })
+            .eq(
+              "telefono",
+              suscriptor.telefono
+            );
 
         if (errorReferencia) {
-
           console.log(
             "❌ Error guardando valor_referencia:",
             errorReferencia
           );
-
         } else {
-
           console.log(
             "📌 Referencia inicial:",
             suscriptor.telefono,
             ventaActual
           );
-
         }
 
         continue;
       }
 
-      // =================================
-      // CALCULAR VARIACIÓN
-      // =================================
-
+      // Variación acumulada desde la referencia individual.
       const variacionAcumulada =
-        (
-          (ventaActual - valorReferencia) /
-          valorReferencia
-        ) * 100;
+        ((ventaActual - valorReferencia) /
+          valorReferencia) * 100;
 
       const variacionAbsoluta =
         Math.abs(variacionAcumulada);
@@ -707,20 +683,36 @@ async function revisarVariacionARSBOB() {
         limite + "%"
       );
 
-      // =================================
-      // NO ALCANZA EL LÍMITE
-      // =================================
-
-      if (
-        variacionAbsoluta < limite
-      ) {
+      // Todavía no alcanza el límite.
+      if (variacionAbsoluta < limite) {
         continue;
       }
 
-      // =================================
-      // ENVIAR ALERTA
-      // =================================
+      // 	Ya se envió una alerta para esta referencia.
+  // ==========================
+// MÁXIMO 1 ALERTA POR HORA
+// ==========================
 
+if (suscriptor.ultima_alerta) {
+
+  const ultimaAlerta =
+    new Date(suscriptor.ultima_alerta);
+
+  const ahora = new Date();
+
+  const diferenciaHoras =
+    (ahora - ultimaAlerta) / (1000 * 60 * 60);
+
+  if (diferenciaHoras < 1) {
+
+    console.log(
+      "⏳ Alerta bloqueada por límite de 1 hora:",
+      suscriptor.telefono
+    );
+
+    continue;
+  }
+}
       console.log(
         "🔔 ALERTA PARA:",
         suscriptor.telefono
@@ -740,32 +732,27 @@ async function revisarVariacionARSBOB() {
         );
 
       // =================================
-      // ACTUALIZAR REFERENCIA
-      // SOLO SI WHATSAPP SE ENVIÓ
+      // GUARDAR HORA SOLO SI SE ENVIÓ
       // =================================
 
       if (resultado) {
 
-        const {
-          error: errorAlerta
-        } = await supabase
-          .from("suscriptores_whatsapp")
-          .update({
-            ultima_alerta:
-              new Date().toISOString(),
-
-            valor_referencia:
-              ventaActual
-          })
-          .eq(
-            "telefono",
-            suscriptor.telefono
-          );
+        const { error: errorAlerta } =
+          await supabase
+            .from("suscriptores_whatsapp")
+            .update({
+              ultima_alerta: new Date().toISOString(),
+              valor_referencia: ventaActual
+            })
+            .eq(
+              "telefono",
+              suscriptor.telefono
+            );
 
         if (errorAlerta) {
 
           console.log(
-            "❌ Error guardando alerta:",
+            "❌ Error guardando ultima_alerta:",
             errorAlerta
           );
 
@@ -775,7 +762,6 @@ async function revisarVariacionARSBOB() {
             "✅ ultima_alerta guardada:",
             suscriptor.telefono
           );
-
         }
 
       } else {
@@ -783,12 +769,11 @@ async function revisarVariacionARSBOB() {
         console.log(
           "⚠️ WhatsApp no se envió; no se registra ultima_alerta."
         );
-
       }
 
-    }
+    } 
 
-  } catch (e) {
+ } catch (e) {
 
     console.log(
       "Error verificando variación ARS → BOB:",
@@ -929,6 +914,8 @@ async function actualizarHistorial(){
       ars_bob.venta
     );
 // VERIFICAR VARIACIÓN
+await revisarVariacionARSBOB();
+
     console.log(
       "Guardado OK"
     );
@@ -1108,18 +1095,6 @@ setInterval(
   10 * 60 * 1000
 );
 
-// ==========================
-// VERIFICAR ALERTAS CADA 1 MINUTO
-// ==========================
-
-revisarVariacionARSBOB();
-
-setInterval(
-
-  revisarVariacionARSBOB,
-
-  60 * 1000
-);
 // ==========================
 // SERVER
 // ==========================
