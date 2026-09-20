@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Administración Telegram</title>
+
+<style>
+body {
+  font-family: Arial, sans-serif;
+  margin: 0;
+  padding: 20px;
+  background: #f2f2f2;
+}
+
+.container {
+  max-width: 1200px;
+  margin: auto;
+}
+
+h1 {
+  text-align: center;
+}
+
+#login, #panel {
+  background: white;
+  padding: 20px;
+  border-radius: 10px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+}
+
+input, select, button {
+  padding: 10px;
+  margin: 5px;
+  border-radius: 5px;
+  border: 1px solid #ccc;
+}
+
+button {
+  cursor: pointer;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 20px;
+  background: white;
+}
+
+th, td {
+  border: 1px solid #ddd;
+  padding: 10px;
+  text-align: center;
+}
+
+th {
+  background: #eee;
+}
+
+#mensaje {
+  margin-top: 15px;
+  font-weight: bold;
+}
+
+#mensajePanel {
+  margin-top: 10px;
+  font-weight: bold;
+}
+
+.referencia {
+  font-size: 13px;
+}
+
+.ultima-alerta {
+  font-size: 13px;
+}
+
+@media (max-width: 900px) {
+
+  .container {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+
+  table {
+    min-width: 1000px;
+  }
+
+  body {
+    padding: 10px;
+  }
+
+  th, td {
+    padding: 6px;
+    font-size: 13px;
+  }
+
+  input, select, button {
+    padding: 8px;
+  }
+}
+</style>
+</head>
+
+<body>
+
+<div class="container">
+
+<h1>📊 Administración Telegram</h1>
+
+<div id="login">
+
+  <h2>🔐 Iniciar sesión</h2>
+
+  <input
+    type="password"
+    id="password"
+    placeholder="Contraseña de administrador"
+  >
+
+  <button onclick="login()">Iniciar sesión</button>
+
+  <div id="mensaje"></div>
+
+</div>
+
+
+<div id="panel" style="display:none;">
+
+  <h2>👥 Suscriptores</h2>
+
+  <button onclick="cargarSuscriptores()">
+    🔄 Actualizar
+  </button>
+
+  <button onclick="logout()">
+    🚪 Cerrar sesión
+  </button>
+
+  <div id="mensajePanel"></div>
+
+  <table>
+
+    <thead>
+      <tr>
+        <th>Chat ID</th>
+        <th>Nombre</th>
+        <th>Username</th>
+        <th>Límite %</th>
+        <th>Intervalo (min)</th>
+        <th>Activo</th>
+        <th>Referencia</th>
+        <th>Última alerta</th>
+        <th>Acciones</th>
+      </tr>
+    </thead>
+
+    <tbody id="tablaSuscriptores"></tbody>
+
+  </table>
+
+</div>
+
+</div>
+
+
+<script>
+
+async function login() {
+
+  const password =
+    document.getElementById("password").value.trim();
+
+  if (!password) {
+
+    document.getElementById("mensaje").textContent =
+      "Ingrese la contraseña";
+
+    return;
+  }
+
+  try {
+
+    const respuesta = await fetch(
+      "/admin/api/login",
+      {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          password: password
+        })
+      }
+    );
+
+    const datos = await respuesta.json();
+
+    if (!respuesta.ok || !datos.ok) {
+
+      document.getElementById("mensaje").textContent =
+        datos.error || "Contraseña incorrecta";
+
+      return;
+    }
+
+    document.getElementById("login").style.display =
+      "none";
+
+    document.getElementById("panel").style.display =
+      "block";
+
+    document.getElementById("mensaje").textContent =
+      "";
+
+    cargarSuscriptores();
+
+  } catch (error) {
+
+    document.getElementById("mensaje").textContent =
+      "Error de conexión con el servidor";
+
+    console.error(error);
+  }
+}
+
+
+async function cargarSuscriptores() {
+
+  try {
+
+    const respuesta = await fetch(
+      "/admin/api/suscriptores",
+      {
+        credentials: "same-origin"
+      }
+    );
+
+    if (respuesta.status === 401) {
+
+      document.getElementById("login").style.display =
+        "block";
+
+      document.getElementById("panel").style.display =
+        "none";
+
+      return;
+    }
+
+    const datos = await respuesta.json();
+
+    const tabla =
+      document.getElementById("tablaSuscriptores");
+
+    tabla.innerHTML = "";
+
+    const suscriptores =
+      Array.isArray(datos)
+        ? datos
+        : (datos.suscriptores || []);
+
+    if (suscriptores.length === 0) {
+
+      tabla.innerHTML =
+        "<tr><td colspan='9'>No hay suscriptores</td></tr>";
+
+      return;
+    }
+
+    suscriptores.forEach(usuario => {
+
+      const fila =
+        document.createElement("tr");
+
+      const referencia =
+        usuario.valor_referencia !== null &&
+        usuario.valor_referencia !== undefined
+          ? usuario.valor_referencia
+          : "Sin referencia";
+
+      const ultimaAlerta =
+        usuario.ultima_alerta
+          ? new Date(
+              usuario.ultima_alerta
+            ).toLocaleString()
+          : "Nunca";
+
+      fila.innerHTML =
+
+        "<td>" +
+        (usuario.chat_id || "") +
+        "</td>" +
+
+        "<td>" +
+        (usuario.nombre || "") +
+        "</td>" +
+
+        "<td>" +
+        (usuario.username || "") +
+        "</td>" +
+
+        "<td>" +
+
+        "<input type='number' " +
+        "step='0.01' min='0.01' " +
+        "id='limite-" +
+        usuario.id +
+        "' " +
+        "value='" +
+        (usuario.variacion_alerta || 0.20) +
+        "' " +
+        "style='width:80px'>" +
+
+        "</td>" +
+
+        "<td>" +
+
+        "<input type='number' " +
+        "step='1' min='1' " +
+        "max='1440' " +
+        "id='intervalo-" +
+        usuario.id +
+        "' " +
+        "value='" +
+        (usuario.intervalo_alerta || 60) +
+        "' " +
+        "style='width:80px'>" +
+
+        "</td>" +
+
+        "<td>" +
+
+        "<select id='activo-" +
+        usuario.id +
+        "'>" +
+
+        "<option value='true' " +
+        (usuario.activo
+          ? "selected"
+          : "") +
+        ">Sí</option>" +
+
+        "<option value='false' " +
+        (!usuario.activo
+          ? "selected"
+          : "") +
+        ">No</option>" +
+
+        "</select>" +
+
+        "</td>" +
+
+        "<td class='referencia'>" +
+
+        referencia +
+
+        "</td>" +
+
+        "<td class='ultima-alerta'>" +
+
+        ultimaAlerta +
+
+        "</td>" +
+
+        "<td>" +
+
+        "<button onclick='guardar(" +
+        usuario.id +
+        ")'>" +
+
+        "💾 Guardar" +
+
+        "</button>" +
+
+        "<button onclick='referencia(" +
+        usuario.id +
+        ")'>" +
+
+        "🔄 Restablecer referencia" +
+
+        "</button>" +
+
+        "</td>";
+
+      tabla.appendChild(fila);
+
+    });
+
+  } catch (error) {
+
+    document.getElementById(
+      "mensajePanel"
+    ).textContent =
+      "Error cargando suscriptores";
+
+    console.error(error);
+  }
+}
+
+
+async function guardar(id) {
+
+  const limite =
+    parseFloat(
+      document.getElementById(
+        "limite-" + id
+      ).value
+    );
+
+  const activo =
+    document.getElementById(
+      "activo-" + id
+    ).value === "true";
+
+  const intervalo =
+    parseInt(
+      document.getElementById(
+        "intervalo-" + id
+      ).value,
+      10
+    );
+
+  if (
+    !Number.isFinite(limite) ||
+    limite <= 0 ||
+    limite > 100
+  ) {
+
+    alert(
+      "Ingrese un límite válido entre 0.01 y 100%"
+    );
+
+    return;
+  }
+
+  if (
+    !Number.isFinite(intervalo) ||
+    intervalo < 1 ||
+    intervalo > 1440
+  ) {
+
+    alert(
+      "El intervalo debe estar entre 1 y 1440 minutos"
+    );
+
+    return;
+  }
+
+  try {
+
+    const respuesta =
+      await fetch(
+        "/admin/api/suscriptores/" +
+        id,
+        {
+          method: "PUT",
+
+          credentials: "same-origin",
+
+          headers: {
+            "Content-Type":
+              "application/json"
+          },
+
+          body: JSON.stringify({
+
+            variacion_alerta:
+              limite,
+
+            intervalo_alerta:
+              intervalo,
+
+            activo:
+              activo
+
+          })
+        }
+      );
+
+    const datos =
+      await respuesta.json();
+
+    if (!respuesta.ok) {
+
+      alert(
+        datos.error ||
+        "No se pudo guardar"
+      );
+
+      return;
+    }
+
+    alert(
+      "✅ Suscriptor actualizado"
+    );
+
+    await cargarSuscriptores();
+
+  } catch (error) {
+
+    alert(
+      "Error de conexión"
+    );
+
+    console.error(error);
+  }
+}
+
+
+async function referencia(id) {
+
+  if (!confirm(
+    "¿Restablecer la referencia de este suscriptor?"
+  )) {
+
+    return;
+  }
+
+  try {
+
+    const respuesta =
+      await fetch(
+        "/admin/api/suscriptores/" +
+        id +
+        "/referencia",
+        {
+          method: "POST",
+          credentials: "same-origin"
+        }
+      );
+
+    const datos =
+      await respuesta.json();
+
+    if (!respuesta.ok) {
+
+      alert(
+        datos.error ||
+        "No se pudo restablecer"
+      );
+
+      return;
+    }
+
+    alert(
+      "✅ Referencia restablecida"
+    );
+
+    await cargarSuscriptores();
+
+  } catch (error) {
+
+    alert(
+      "Error de conexión"
+    );
+
+    console.error(error);
+  }
+}
+
+
+async function logout() {
+
+  try {
+
+    await fetch(
+      "/admin/api/logout",
+      {
+        method: "POST",
+        credentials: "same-origin"
+      }
+    );
+
+  } catch (error) {
+
+    console.error(error);
+  }
+
+  document.getElementById(
+    "panel"
+  ).style.display = "none";
+
+  document.getElementById(
+    "login"
+  ).style.display = "block";
+
+  document.getElementById(
+    "password"
+  ).value = "";
+
+}
+
+
+async function comprobarSesion() {
+
+  try {
+
+    const respuesta =
+      await fetch(
+        "/admin/api/me",
+        {
+          credentials:
+            "same-origin"
+        }
+      );
+
+    const datos =
+      await respuesta.json();
+
+    if (datos.autorizado) {
+
+      document.getElementById(
+        "login"
+      ).style.display =
+        "none";
+
+      document.getElementById(
+        "panel"
+      ).style.display =
+        "block";
+
+      cargarSuscriptores();
+
+    }
+
+  } catch (error) {
+
+    console.error(error);
+  }
+}
+
+
+document
+  .getElementById("password")
+  .addEventListener(
+    "keydown",
+    function(event) {
+
+      if (event.key === "Enter") {
+        login();
+      }
+
+    }
+  );
+
+
+comprobarSesion();
+
+</script>
+
+</body>
+</html>

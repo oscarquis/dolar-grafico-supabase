@@ -1,7 +1,29 @@
+require("dotenv").config();
+
 const express = require("express");
 
 const cors = require("cors");
 const axios = require("axios");
+const TelegramBot = require("node-telegram-bot-api");
+// =====================================
+// CONFIGURACIÓN TELEGRAM
+// =====================================
+
+const TELEGRAM_BOT_TOKEN =
+  process.env.TELEGRAM_BOT_TOKEN;
+
+if (!TELEGRAM_BOT_TOKEN) {
+  console.log(
+    "⚠️ Falta la variable TELEGRAM_BOT_TOKEN"
+  );
+}
+
+const bot = new TelegramBot(
+  TELEGRAM_BOT_TOKEN,
+  {
+    polling: true
+  }
+);
 // =====================================
 // ENVIAR PLANTILLA WHATSAPP
 // =====================================
@@ -119,11 +141,11 @@ fetch(...args)
 // ==========================
 
 const app = express();
-
 app.use(cors());
 
-app.use(express.static(__dirname));
+app.use(express.json());
 
+app.use(express.static(__dirname));
 // ==========================
 // SUPABASE
 // ==========================
@@ -539,6 +561,342 @@ if(rango === "anio"){
 }
   return todos.reverse();
 }
+
+
+// =====================================
+// ALERTAS TELEGRAM ARS → BOB
+// =====================================
+
+async function revisarVariacionTelegramARSBOB() {
+
+  try {
+
+    const { data, error } =
+      await supabase
+        .from("cotizaciones")
+        .select("compra, venta, fecha")
+        .eq("moneda", "ars_bob")
+        .order("fecha", { ascending: false })
+        .limit(2);
+
+    if (error) {
+
+      console.log(
+        "❌ Error consultando ARS → BOB para Telegram:",
+        error
+      );
+
+      return;
+    }
+
+    if (!data || data.length < 2) {
+
+      console.log(
+        "Todavía no hay suficientes registros para Telegram."
+      );
+
+      return;
+    }
+
+    const actual = data[0];
+    const anterior = data[1];
+
+    const ventaActual = Number(actual.venta);
+    const ventaAnterior = Number(anterior.venta);
+
+    if (
+      !ventaActual ||
+      !ventaAnterior ||
+      ventaAnterior <= 0
+    ) {
+
+      console.log(
+        "Valores ARS → BOB inválidos para Telegram."
+      );
+
+      return;
+    }
+
+    const variacion =
+      (
+        (ventaActual - ventaAnterior) /
+        ventaAnterior
+      ) * 100;
+
+    console.log("=================================");
+    console.log("📊 ARS → BOB TELEGRAM");
+    console.log("Anterior:", ventaAnterior);
+    console.log("Actual:", ventaActual);
+    console.log(
+      "Variación:",
+      variacion.toFixed(2) + "%"
+    );
+    console.log("=================================");
+
+    const {
+      data: suscriptores,
+      error: errorSuscriptores
+    } = await supabase
+      .from("suscriptores_telegram")
+      .select(
+        "chat_id, telefono, nombre, username, variacion_alerta, valor_referencia, ultima_alerta, intervalo_alerta"
+      )
+      .eq("activo", true);
+
+    if (errorSuscriptores) {
+
+      console.log(
+        "❌ Error consultando suscriptores Telegram:",
+        errorSuscriptores
+      );
+
+      return;
+    }
+
+    if (
+      !suscriptores ||
+      suscriptores.length === 0
+    ) {
+
+      console.log(
+        "No hay suscriptores Telegram activos."
+      );
+
+      return;
+    }
+
+    for (const suscriptor of suscriptores) {
+
+      const limite =
+        Number(
+          suscriptor.variacion_alerta
+        );
+
+      if (limite <= 0) {
+        continue;
+      }
+
+      let valorReferencia =
+        Number(
+          suscriptor.valor_referencia
+        );
+
+      // =====================================
+      // REFERENCIA INICIAL
+      // =====================================
+
+      if (
+        !Number.isFinite(valorReferencia) ||
+        valorReferencia <= 0
+      ) {
+
+        const {
+          error: errorReferencia
+        } = await supabase
+          .from("suscriptores_telegram")
+          .update({
+            valor_referencia: ventaActual,
+            ultima_alerta: null
+          })
+          .eq(
+            "chat_id",
+            suscriptor.chat_id
+          );
+
+        if (errorReferencia) {
+
+          console.log(
+            "❌ Error guardando referencia Telegram:",
+            errorReferencia
+          );
+
+        } else {
+
+          console.log(
+            "📌 Referencia inicial Telegram:",
+            suscriptor.chat_id,
+            ventaActual
+          );
+        }
+
+        continue;
+      }
+
+      // =====================================
+      // VARIACIÓN ACUMULADA
+      // =====================================
+
+      const variacionAcumulada =
+        (
+          (ventaActual - valorReferencia) /
+          valorReferencia
+        ) * 100;
+
+      const variacionAbsoluta =
+        Math.abs(
+          variacionAcumulada
+        );
+
+      console.log(
+        "👤 Telegram:",
+        suscriptor.chat_id,
+        "Referencia:",
+        valorReferencia,
+        "Actual:",
+        ventaActual,
+        "Variación:",
+        variacionAcumulada.toFixed(4) + "%",
+        "Límite:",
+        limite + "%"
+      );
+
+      if (
+        variacionAbsoluta < limite
+      ) {
+        continue;
+      }
+      // =====================================
+      // INTERVALO DE ALERTA PERSONALIZADO
+      // =====================================
+
+      const intervaloMinutos =
+        Number(
+          suscriptor.intervalo_alerta
+        ) || 60;
+
+      if (
+        suscriptor.ultima_alerta
+      ) {
+
+        const ultimaAlerta =
+          new Date(
+            suscriptor.ultima_alerta
+          );
+
+        const ahora =
+          new Date();
+
+        const diferenciaMinutos =
+          (
+            ahora -
+            ultimaAlerta
+          ) /
+          (1000 * 60);
+
+        if (
+          diferenciaMinutos <
+          intervaloMinutos
+        ) {
+
+          console.log(
+            "⏳ Alerta Telegram bloqueada:",
+            suscriptor.chat_id,
+            "Han pasado:",
+            diferenciaMinutos.toFixed(1),
+            "minutos",
+            "Intervalo:",
+            intervaloMinutos,
+            "minutos"
+          );
+
+          continue;
+        }
+      }
+
+      // =====================================
+      // ENVIAR ALERTA TELEGRAM
+      // =====================================
+
+      console.log(
+        "🔔 ALERTA TELEGRAM PARA:",
+        suscriptor.chat_id
+      );
+
+      const mensaje =
+        `🚨 ALERTA DÓLAR EN VIVO\n\n` +
+        `💱 ARS → BOB\n\n` +
+        `📊 Variación: ${variacionAbsoluta.toFixed(2)}%\n` +
+        `📌 Referencia: ${valorReferencia.toFixed(5)}\n` +
+        `💵 Actual: ${ventaActual.toFixed(5)}\n\n` +
+        `Dólar en Vivo Bolivia`;
+
+      let resultado = null;
+
+      try {
+
+        resultado =
+          await bot.sendMessage(
+            suscriptor.chat_id,
+            mensaje
+          );
+
+        console.log(
+          "✅ Telegram enviado:",
+          suscriptor.chat_id
+        );
+
+      } catch (error) {
+
+        console.log(
+          "❌ Error enviando Telegram:",
+          suscriptor.chat_id,
+          error.response?.body ||
+          error.message
+        );
+      }
+
+      // =====================================
+      // GUARDAR SOLO SI TELEGRAM SE ENVIÓ
+      // =====================================
+
+      if (resultado) {
+
+        const {
+          error: errorAlerta
+        } = await supabase
+          .from("suscriptores_telegram")
+          .update({
+            ultima_alerta:
+              new Date().toISOString(),
+
+            valor_referencia:
+              ventaActual
+          })
+          .eq(
+            "chat_id",
+            suscriptor.chat_id
+          );
+
+        if (errorAlerta) {
+
+          console.log(
+            "❌ Error guardando alerta Telegram:",
+            errorAlerta
+          );
+
+        } else {
+
+          console.log(
+            "✅ Alerta Telegram guardada:",
+            suscriptor.chat_id
+          );
+        }
+
+      } else {
+
+        console.log(
+          "⚠️ Telegram no se envió; no se actualiza la referencia."
+        );
+      }
+    }
+  } catch (e) {
+
+    console.log(
+      "❌ Error verificando Telegram ARS → BOB:",
+      e
+    );
+  }
+}
 // ==========================
 // VERIFICAR VARIACIÓN ARS → BOB
 // ==========================
@@ -703,15 +1061,18 @@ if (suscriptor.ultima_alerta) {
   const diferenciaHoras =
     (ahora - ultimaAlerta) / (1000 * 60 * 60);
 
-  if (diferenciaHoras < 1) {
+ if (diferenciaHoras < 1) {
 
-    console.log(
-      "⏳ Alerta bloqueada por límite de 1 hora:",
-      suscriptor.telefono
-    );
+  console.log(
+    "⏳ Alerta bloqueada por límite de 1 hora:",
+    suscriptor.telefono,
+    "Han pasado:",
+    (diferenciaHoras * 60).toFixed(1),
+    "minutos"
+  );
 
-    continue;
-  }
+  continue;
+}
 }
       console.log(
         "🔔 ALERTA PARA:",
@@ -913,19 +1274,741 @@ async function actualizarHistorial(){
 
       ars_bob.venta
     );
-// VERIFICAR VARIACIÓN
+// VERIFICAR VARIACIÓN WHATSAPP
 await revisarVariacionARSBOB();
 
-    console.log(
-      "Guardado OK"
-    );
+// VERIFICAR ALERTAS TELEGRAM
+await revisarVariacionTelegramARSBOB();
 
+console.log(
+  "Guardado OK"
+);
   }catch(e){
 
     console.log(e);
   }
 }
+// =====================================
+// COMANDO /start TELEGRAM
+// =====================================
 
+bot.onText(/^\/start$/, async (msg) => {
+
+  try {
+
+    const chatId = msg.chat.id;
+
+    const nombre = [
+      msg.from?.first_name,
+      msg.from?.last_name
+    ]
+      .filter(Boolean)
+      .join(" ");
+
+    const username =
+      msg.from?.username || null;
+
+    const {
+      data: existente,
+      error: errorBusqueda
+    } = await supabase
+      .from("suscriptores_telegram")
+      .select(
+        "chat_id, variacion_alerta, intervalo_alerta"
+      )
+      .eq("chat_id", chatId)
+      .maybeSingle();
+
+    if (errorBusqueda) {
+
+      console.log(
+        "❌ Error buscando suscriptor Telegram:",
+        errorBusqueda
+      );
+
+      await bot.sendMessage(
+        chatId,
+        "❌ No se pudo activar tu suscripción. Intenta nuevamente."
+      );
+
+      return;
+    }
+
+    // =====================================
+    // NUEVO SUSCRIPTOR
+    // =====================================
+
+    if (!existente) {
+
+      const {
+        error: errorInsertar
+      } = await supabase
+        .from("suscriptores_telegram")
+        .insert({
+
+          chat_id: chatId,
+
+          nombre:
+            nombre || null,
+
+          username,
+
+          variacion_alerta:
+            0.20,
+
+          intervalo_alerta:
+            60,
+
+          activo:
+            true
+        });
+
+      if (errorInsertar) {
+
+        console.log(
+          "❌ Error registrando Telegram:",
+          errorInsertar
+        );
+
+        await bot.sendMessage(
+          chatId,
+          "❌ No se pudo completar el registro."
+        );
+
+        return;
+      }
+
+      await bot.sendMessage(
+        chatId,
+
+        `👋 Hola ${nombre || "amigo"}!\n\n` +
+        `✅ Ya estás suscrito a las alertas de Dólar en Vivo Bolivia.\n\n` +
+        `📊 Límite actual: 0.20%\n` +
+        `⏱️ Intervalo entre alertas: 60 minutos\n\n` +
+        `Puedes consultar tu configuración con /estado.`
+      );
+
+      console.log(
+        "✅ Nuevo suscriptor Telegram:",
+        chatId
+      );
+
+      return;
+    }
+
+    // =====================================
+    // SUSCRIPTOR EXISTENTE
+    // =====================================
+
+    await supabase
+      .from("suscriptores_telegram")
+      .update({
+
+        activo:
+          true,
+
+        nombre:
+          nombre || null,
+
+        username
+
+      })
+      .eq(
+        "chat_id",
+        chatId
+      );
+
+    const limite =
+      Number(
+        existente.variacion_alerta
+      ) || 0.20;
+
+    const intervalo =
+      Number(
+        existente.intervalo_alerta
+      ) || 60;
+
+    await bot.sendMessage(
+      chatId,
+
+      `👋 Hola ${nombre || "amigo"}!\n\n` +
+      `✅ Tu suscripción está activa.\n\n` +
+      `📊 Límite actual: ${limite.toFixed(2)}%\n` +
+      `⏱️ Intervalo entre alertas: ${intervalo} minutos\n\n` +
+      `Puedes consultar tu configuración con /estado.`
+    );
+
+    console.log(
+      "✅ Suscriptor Telegram reactivado:",
+      chatId
+    );
+
+  } catch (error) {
+
+    console.log(
+      "❌ Error /start:",
+      error
+    );
+
+  }
+
+});
+
+// =====================================
+// COMANDO /estado TELEGRAM
+// =====================================
+
+bot.onText(/^\/estado$/, async (msg) => {
+
+  try {
+
+    const chatId = msg.chat.id;
+
+    const {
+      data: usuario,
+      error
+    } = await supabase
+      .from("suscriptores_telegram")
+      .select(
+        "variacion_alerta, intervalo_alerta, valor_referencia, ultima_alerta, activo"
+      )
+      .eq("chat_id", chatId)
+      .maybeSingle();
+
+    if (error) {
+
+      console.log(
+        "❌ Error /estado:",
+        error
+      );
+
+      await bot.sendMessage(
+        chatId,
+        "❌ No se pudo consultar tu configuración."
+      );
+
+      return;
+    }
+
+    if (!usuario) {
+
+      await bot.sendMessage(
+        chatId,
+        "ℹ️ No estás registrado.\n\n" +
+        "Envía /start para activar las alertas."
+      );
+
+      return;
+    }
+
+    const limite =
+      Number(
+        usuario.variacion_alerta
+      ) || 0;
+
+    const intervalo =
+      Number(
+        usuario.intervalo_alerta
+      ) || 60;
+
+    const referencia =
+      Number(
+        usuario.valor_referencia
+      );
+
+    let textoReferencia =
+      "Sin establecer";
+
+    if (
+      Number.isFinite(referencia) &&
+      referencia > 0
+    ) {
+
+      textoReferencia =
+        referencia.toFixed(5);
+    }
+
+    let textoAlerta =
+      "Nunca";
+
+    if (usuario.ultima_alerta) {
+
+      textoAlerta =
+        new Date(
+          usuario.ultima_alerta
+        ).toLocaleString(
+          "es-BO"
+        );
+    }
+
+    await bot.sendMessage(
+      chatId,
+
+      `📊 ESTADO DE TU SUSCRIPCIÓN\n\n` +
+      `🔔 Alertas: ${usuario.activo ? "ACTIVAS" : "INACTIVAS"}\n` +
+      `📈 Límite: ${limite.toFixed(2)}%\n` +
+      `⏱️ Intervalo: ${intervalo} minutos\n` +
+      `📌 Referencia: ${textoReferencia}\n` +
+      `🕐 Última alerta: ${textoAlerta}\n\n` +
+      `Dólar en Vivo Bolivia`
+    );
+
+  } catch (error) {
+
+    console.log(
+      "❌ Error /estado:",
+      error
+    );
+
+  }
+
+});
+
+// =====================================
+// COMANDO /ayuda TELEGRAM
+// =====================================
+
+bot.onText(/^\/ayuda$/, async (msg) => {
+
+  try {
+
+    const chatId = msg.chat.id;
+
+    await bot.sendMessage(
+      chatId,
+
+      `🤖 Dólar en Vivo Bolivia\n\n` +
+      `/start - Activar alertas\n` +
+      `/estado - Ver tu configuración\n` +
+      `/ayuda - Ver estos comandos\n\n` +
+      `📊 El límite y el intervalo de alertas son administrados por el sistema.`
+    );
+
+  } catch (error) {
+
+    console.log(
+      "❌ Error /ayuda:",
+      error
+    );
+
+  }
+
+});
+
+// =====================================
+// ADMINISTRACIÓN TELEGRAM
+// =====================================
+
+const crypto = require("crypto");
+
+const sesionesAdmin = new Map();
+
+function generarSesion() {
+  return crypto.randomBytes(32).toString("hex");
+}
+
+function obtenerCookie(req, nombre) {
+
+  const cookies =
+    req.headers.cookie || "";
+
+  const partes =
+    cookies.split(";");
+
+  for (const parte of partes) {
+
+    const [clave, ...valor] =
+      parte.trim().split("=");
+
+    if (clave === nombre) {
+
+      return decodeURIComponent(
+        valor.join("=")
+      );
+    }
+  }
+
+  return null;
+}
+
+function adminAutorizado(req) {
+
+  const token =
+    obtenerCookie(
+      req,
+      "telegram_admin"
+    );
+
+  return token &&
+    sesionesAdmin.has(token);
+}
+
+// =====================================
+// LOGIN ADMIN
+// =====================================
+
+app.post(
+  "/admin/api/login",
+  (req, res) => {
+
+    const password =
+      req.body?.password;
+
+    if (
+      !process.env.TELEGRAM_ADMIN_PASSWORD
+    ) {
+
+      return res.status(500).json({
+        error:
+          "Falta TELEGRAM_ADMIN_PASSWORD"
+      });
+    }
+
+    if (
+      password !==
+      process.env.TELEGRAM_ADMIN_PASSWORD
+    ) {
+
+      return res.status(401).json({
+        error:
+          "Contraseña incorrecta"
+      });
+    }
+
+    const token =
+      generarSesion();
+
+    sesionesAdmin.set(
+      token,
+      Date.now()
+    );
+
+    res.setHeader(
+      "Set-Cookie",
+      `telegram_admin=${encodeURIComponent(token)}; HttpOnly; SameSite=Strict; Path=/; Max-Age=86400`
+    );
+
+    res.json({
+      ok: true
+    });
+  }
+);
+
+// =====================================
+// PÁGINA ADMIN
+// =====================================
+
+app.get(
+  "/admin",
+  (req, res) => {
+
+    res.sendFile(
+      require("path").join(
+        __dirname,
+        "admin.html"
+      )
+    );
+  }
+);
+
+// =====================================
+// CERRAR SESIÓN ADMIN
+// =====================================
+
+app.post(
+  "/admin/api/logout",
+  (req, res) => {
+
+    const token =
+      obtenerCookie(
+        req,
+        "telegram_admin"
+      );
+
+    if (token) {
+      sesionesAdmin.delete(token);
+    }
+
+    res.setHeader(
+      "Set-Cookie",
+      "telegram_admin=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0"
+    );
+
+    res.json({
+      ok: true
+    });
+  }
+);
+
+// =====================================
+// VERIFICAR SESIÓN
+// =====================================
+
+app.get(
+  "/admin/api/me",
+  (req, res) => {
+
+    if (!adminAutorizado(req)) {
+
+      return res.status(401).json({
+        autorizado: false
+      });
+    }
+
+    res.json({
+      autorizado: true
+    });
+  }
+);
+// =====================================
+// LISTAR SUSCRIPTORES TELEGRAM
+// =====================================
+
+app.get(
+  "/admin/api/suscriptores",
+  async (req, res) => {
+
+    if (!adminAutorizado(req)) {
+
+      return res.status(401).json({
+        error: "No autorizado"
+      });
+    }
+
+    try {
+
+      const {
+        data,
+        error
+      } = await supabase
+        .from("suscriptores_telegram")
+        .select(
+          "id, chat_id, telefono, nombre, username, variacion_alerta, valor_referencia, ultima_alerta, intervalo_alerta, activo, created_at"
+        )
+        .order(
+          "created_at",
+          {
+            ascending: false
+          }
+        );
+
+      if (error) {
+
+        console.log(
+          "❌ Error administrando suscriptores:",
+          error
+        );
+
+        return res.status(500).json({
+          error: error.message
+        });
+      }
+
+      res.json(
+        data || []
+      );
+
+    } catch (error) {
+
+      console.log(
+        "❌ Error API suscriptores:",
+        error
+      );
+
+      res.status(500).json({
+        error: "Error interno"
+      });
+    }
+  }
+);
+// =====================================
+// MODIFICAR SUSCRIPTOR TELEGRAM
+// =====================================
+
+app.put(
+  "/admin/api/suscriptores/:id",
+  async (req, res) => {
+
+    if (!adminAutorizado(req)) {
+
+      return res.status(401).json({
+        error: "No autorizado"
+      });
+    }
+
+    const id =
+      Number(req.params.id);
+
+    const porcentaje =
+      Number(
+        req.body?.variacion_alerta
+      );
+
+    const intervalo =
+      Number(
+        req.body?.intervalo_alerta
+      );
+
+    const activo =
+      req.body?.activo;
+
+    if (
+      !Number.isFinite(id) ||
+      !Number.isFinite(porcentaje) ||
+      porcentaje <= 0 ||
+      porcentaje > 100
+    ) {
+
+      return res.status(400).json({
+        error:
+          "Porcentaje inválido"
+      });
+    }
+
+    if (
+      !Number.isFinite(intervalo) ||
+      intervalo < 1 ||
+      intervalo > 1440
+    ) {
+
+      return res.status(400).json({
+        error:
+          "Intervalo inválido. Debe estar entre 1 y 1440 minutos"
+      });
+    }
+
+    if (
+      typeof activo !== "boolean"
+    ) {
+
+      return res.status(400).json({
+        error:
+          "Estado inválido"
+      });
+    }
+
+    try {
+
+      const {
+        error
+      } = await supabase
+        .from("suscriptores_telegram")
+        .update({
+
+          variacion_alerta:
+            porcentaje,
+
+          intervalo_alerta:
+            intervalo,
+
+          activo
+        })
+        .eq(
+          "id",
+          id
+        );
+
+      if (error) {
+
+        console.log(
+          "❌ Error actualizando suscriptor:",
+          error
+        );
+
+        return res.status(500).json({
+          error: error.message
+        });
+      }
+
+      res.json({
+        ok: true
+      });
+
+    } catch (error) {
+
+      console.log(
+        "❌ Error API actualizar:",
+        error
+      );
+
+      res.status(500).json({
+        error: "Error interno"
+      });
+    }
+  }
+);
+// =====================================
+// RESTABLECER REFERENCIA TELEGRAM
+// =====================================
+
+app.post(
+  "/admin/api/suscriptores/:id/referencia",
+  async (req, res) => {
+
+    if (!adminAutorizado(req)) {
+
+      return res.status(401).json({
+        error: "No autorizado"
+      });
+    }
+
+    const id =
+      Number(req.params.id);
+
+    if (!Number.isFinite(id)) {
+
+      return res.status(400).json({
+        error: "ID inválido"
+      });
+    }
+
+    try {
+
+      const {
+        error
+      } = await supabase
+        .from("suscriptores_telegram")
+        .update({
+
+          valor_referencia: null,
+
+          ultima_alerta: null
+
+        })
+        .eq(
+          "id",
+          id
+        );
+
+      if (error) {
+
+        console.log(
+          "❌ Error reiniciando referencia:",
+          error
+        );
+
+        return res.status(500).json({
+          error: error.message
+        });
+      }
+
+      res.json({
+        ok: true
+      });
+
+    } catch (error) {
+
+      console.log(
+        "❌ Error API referencia:",
+        error
+      );
+
+      res.status(500).json({
+        error: "Error interno"
+      });
+    }
+  }
+);
 // ==========================
 // API
 // ==========================
