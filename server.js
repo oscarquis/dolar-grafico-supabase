@@ -636,10 +636,10 @@ async function revisarVariacionTelegramARSBOB() {
     const {
       data: suscriptores,
       error: errorSuscriptores
-    } = await supabase
+      } = await supabase
       .from("suscriptores_telegram")
       .select(
-        "chat_id, telefono, nombre, username, variacion_alerta, valor_referencia, ultima_alerta, intervalo_alerta"
+        "chat_id, telefono, nombre, username, variacion_alerta, valor_referencia, ultima_alerta, intervalo_alerta, suscripcion_activa, fecha_inicio, fecha_vencimiento"
       )
       .eq("activo", true);
 
@@ -666,6 +666,25 @@ async function revisarVariacionTelegramARSBOB() {
     }
 
     for (const suscriptor of suscriptores) {
+      // =====================================
+      // COMPROBAR SUSCRIPCIÓN
+      // =====================================
+
+      if (
+        !suscriptor.suscripcion_activa ||
+        !suscriptor.fecha_vencimiento ||
+        new Date(suscriptor.fecha_vencimiento) < new Date()
+      ) {
+
+        console.log(
+          "⛔ Telegram sin suscripción:",
+          suscriptor.chat_id
+        );
+
+        continue;
+      }
+
+
 
       const limite =
         Number(
