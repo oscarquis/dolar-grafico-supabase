@@ -1783,7 +1783,7 @@ app.get(
       } = await supabase
         .from("suscriptores_telegram")
         .select(
-          "id, chat_id, telefono, nombre, username, variacion_alerta, valor_referencia, ultima_alerta, intervalo_alerta, activo, created_at"
+          "id, chat_id, telefono, nombre, username, variacion_alerta, valor_referencia, ultima_alerta, intervalo_alerta, activo, suscripcion_activa, fecha_inicio, fecha_vencimiento, created_at"
         )
         .order(
           "created_at",
@@ -2000,6 +2000,158 @@ app.post(
 
       console.log(
         "❌ Error API referencia:",
+        error
+      );
+
+      res.status(500).json({
+        error: "Error interno"
+      });
+    }
+  }
+);
+
+// =====================================
+// ACTIVAR / EXTENDER SUSCRIPCIÓN 30 DÍAS
+// =====================================
+
+app.post(
+  "/admin/api/suscriptores/:id/suscripcion",
+  async (req, res) => {
+
+    if (!adminAutorizado(req)) {
+
+      return res.status(401).json({
+        error: "No autorizado"
+      });
+    }
+
+    const id =
+      Number(req.params.id);
+
+    if (!Number.isFinite(id)) {
+
+      return res.status(400).json({
+        error: "ID inválido"
+      });
+    }
+
+    try {
+
+      // Obtener suscripción actual
+      const {
+        data: usuario,
+        error: errorConsulta
+      } = await supabase
+        .from("suscriptores_telegram")
+        .select(
+          "id, suscripcion_activa, fecha_inicio, fecha_vencimiento"
+        )
+        .eq("id", id)
+        .single();
+
+      if (errorConsulta) {
+
+        console.log(
+          "❌ Error consultando suscripción:",
+          errorConsulta
+        );
+
+        return res.status(500).json({
+          error: errorConsulta.message
+        });
+      }
+
+      const ahora = new Date();
+
+      let fechaInicio;
+      let fechaVencimiento;
+
+      // Si todavía tiene una suscripción vigente,
+      // se agregan 30 días al vencimiento actual.
+      if (
+        usuario.suscripcion_activa &&
+        usuario.fecha_vencimiento &&
+        new Date(usuario.fecha_vencimiento) > ahora
+      ) {
+
+        fechaInicio =
+          usuario.fecha_inicio
+            ? new Date(usuario.fecha_inicio)
+            : ahora;
+
+        fechaVencimiento =
+          new Date(usuario.fecha_vencimiento);
+
+        fechaVencimiento.setDate(
+          fechaVencimiento.getDate() + 30
+        );
+
+      } else {
+
+        // Si está vencida o nunca tuvo suscripción,
+        // comienza una nueva desde ahora.
+        fechaInicio = ahora;
+
+        fechaVencimiento =
+          new Date(ahora);
+
+        fechaVencimiento.setDate(
+          fechaVencimiento.getDate() + 30
+        );
+      }
+
+      const {
+        error: errorActualizacion
+      } = await supabase
+        .from("suscriptores_telegram")
+        .update({
+
+          suscripcion_activa: true,
+
+          fecha_inicio:
+            fechaInicio.toISOString(),
+
+          fecha_vencimiento:
+            fechaVencimiento.toISOString()
+
+        })
+        .eq(
+          "id",
+          id
+        );
+
+      if (errorActualizacion) {
+
+        console.log(
+          "❌ Error actualizando suscripción:",
+          errorActualizacion
+        );
+
+        return res.status(500).json({
+          error:
+            errorActualizacion.message
+        });
+      }
+
+      console.log(
+        "✅ Suscripción activada:",
+        id,
+        "Vence:",
+        fechaVencimiento.toISOString()
+      );
+
+      res.json({
+        ok: true,
+        fecha_inicio:
+          fechaInicio.toISOString(),
+        fecha_vencimiento:
+          fechaVencimiento.toISOString()
+      });
+
+    } catch (error) {
+
+      console.log(
+        "❌ Error API suscripción:",
         error
       );
 
