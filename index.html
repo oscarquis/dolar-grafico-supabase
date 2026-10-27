@@ -20,146 +20,157 @@ content="width=device-width, initial-scale=1.0">
 <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom"></script>
 
 <style>
-
-body{
-
-  margin:0;
-
-  padding:8px;
-
-  background:#111;
-
-  color:white;
-
-  font-family:Arial;
+* {
+  box-sizing: border-box;
 }
 
-h1{
-
-  text-align:center;
-
-  margin-bottom:10px;
-
-  font-size:22px;
+body {
+  margin: 0;
+  padding: 6px;
+  background: #0b1120;
+  color: #e5e7eb;
+  font-family: Arial, sans-serif;
 }
 
-/* =====================
-CARDS PEQUEÑAS
-===================== */
-
-#cards{
-
-  display:grid;
-
-  grid-template-columns:
-  repeat(auto-fit,minmax(100px,1fr));
-
-  gap:6px;
-
-  margin-bottom:10px;
+h1 {
+  text-align: center;
+  margin: 4px 0 10px;
+  font-size: clamp(21px, 5vw, 28px);
+  font-weight: 800;
+  color: #f8fafc;
 }
 
-.card{
-
-  background:#222;
-
-  border-radius:10px;
-
-  padding:6px;
-
-  text-align:center;
+#cards {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin-bottom: 10px;
 }
 
-.card h3{
-
-  font-size:12px;
-
-  margin:2px 0;
+.card {
+  min-width: 0;
+  padding: 8px;
+  text-align: left;
+  background: linear-gradient(145deg, #182338, #111a2b);
+  border: 1px solid #28364c;
+  border-radius: 14px;
+  box-shadow: 0 4px 12px #00000020;
 }
 
-.valor{
-
-  font-size:14px;
-
-  font-weight:bold;
+.card h3 {
+  margin: 0 0 5px;
+  color: #a5b4fc;
+  font-size: 13px;
+  font-weight: 700;
 }
 
-.card div{
-
-  font-size:12px;
+.card div {
+  margin-top: 3px;
+  color: #cbd5e1;
+  font-size: 12px;
 }
 
-/* =====================
-BOTONES
-===================== */
+.valor {
+  font-size: 15px;
+  font-weight: 800;
+  color: #f8fafc;
+  overflow-wrap: anywhere;
+}
 
 #botones,
-#rangos{
-
-  display:flex;
-
-  flex-wrap:wrap;
-
-  gap:6px;
-
-  justify-content:center;
-
-  margin-bottom:10px;
+#rangos {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 5px;
+  margin: 0 0 8px;
 }
 
-button{
-
-  border:none;
-
-  padding:6px 10px;
-
-  border-radius:8px;
-
-  background:#333;
-
-  color:white;
-
-  cursor:pointer;
-
-  font-size:12px;
+button {
+  min-height: 32px;
+  padding: 6px 9px;
+  border: 1px solid #334155;
+  border-radius: 10px;
+  background: #1e293b;
+  color: #e2e8f0;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: background .15s, color .15s;
 }
 
-.activo{
-
-  background:lime;
-
-  color:black;
+button.activo {
+  background: #34d399;
+  border-color: #34d399;
+  color: #052e24;
 }
 
-.activoRango{
-
-  background:orange;
-
-  color:black;
+button.activoRango {
+  background: #fbbf24;
+  border-color: #fbbf24;
+  color: #422006;
 }
 
-/* =====================
-GRAFICO
-===================== */
-
-#graficoBox{
-
-  background:#222;
-
-  border-radius:12px;
-
-  padding:8px;
-
-  height:420px;
+#graficoBox {
+  position: relative;
+  width: 100%;
+  height: clamp(280px, 52vh, 420px);
+  padding: 6px;
+  margin-top: 4px;
+  overflow: hidden;
+  background: #111a2b;
+  border: 1px solid #28364c;
+  border-radius: 16px;
 }
 
-canvas{
-
-  width:100% !important;
-
-  height:100% !important;
+canvas {
+  display: block;
+  max-width: 100%;
 }
 
+@media (min-width: 600px) {
+  body {
+    max-width: 1000px;
+    margin: 0 auto;
+    padding: 20px;
+  }
+
+  #cards {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .card {
+    padding: 16px;
+  }
+
+  .valor {
+    font-size: 19px;
+  }
+}
+
+@media (max-width: 360px) {
+  body {
+    padding: 8px;
+  }
+
+  #cards {
+    gap: 7px;
+  }
+
+  .card {
+    padding: 10px 8px;
+  }
+
+  .valor {
+    font-size: 15px;
+  }
+
+  button {
+    padding: 8px 10px;
+    font-size: 12px;
+  }
+}
 </style>
 
 </head>
@@ -336,6 +347,11 @@ GRAFICO
 // registrar zoom
 Chart.register(ChartZoom);
 
+//temporal
+console.log("Chart.js:", typeof Chart);
+console.log("ChartZoom:", typeof ChartZoom);
+//__
+
 // =====================
 // VARIABLES
 // =====================
@@ -361,6 +377,12 @@ async function cargar(){
 
     let data =
       await res.json();
+//temporal
+
+console.log("Respuesta API:", data);
+console.log("Historial seleccionado:", moneda, data.historial?.[moneda]?.length);
+console.log("Canvas:", document.getElementById("grafico"));
+//--
 
     let actual =
       data.actual;

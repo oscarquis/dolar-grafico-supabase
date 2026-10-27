@@ -21,7 +21,9 @@ if (!TELEGRAM_BOT_TOKEN) {
 const bot = new TelegramBot(
   TELEGRAM_BOT_TOKEN,
   {
-    polling: true
+    // Use TELEGRAM_POLLING=false in local .env if another server
+    // (for example Render) is already polling this same bot.
+    polling: process.env.TELEGRAM_POLLING !== "false"
   }
 );
 // =====================================
@@ -307,80 +309,91 @@ async function getP2P_ARS(){
 // =====================================
 // bcb
 // =====================================
-async function getBCB(){
 
-  try{
 
-    const { data } = await axios.get(
-      "https://deudaexternapublica.bcb.gob.bo/publico/tipos-cambio/ultimos-indicadores",
-      {
-        headers:{
-          "User-Agent":"Mozilla/5.0"
-        }
-      }
+async function getBCB() {
+  try {
+    const respuesta = await fetch(
+      "https://api.factura.bo/ExchangeRate"
     );
 
-    const fecha =
-      data.match(/FECHA DE LA COTIZACIÓN:[\s\S]*?<strong><u>(.*?)<\/u>/i)?.[1]
-      ?.replace(/&eacute;/g,"é") || null;
+    if (!respuesta.ok) {
+      throw new Error(`HTTP ${respuesta.status}`);
+    }
 
-    const compra =
-      data.match(/ESTADOS UNIDOS[\s\S]*?DÓLAR COMPRA[\s\S]*?<td align="right">([\d,]+)<\/td>/i)?.[1]
-      ?.replace(",", ".");
+    const resultado = await respuesta.json();
 
-    const venta =
-      data.match(/ESTADOS UNIDOS[\s\S]*?DÓLAR VENTA[\s\S]*?<td align="right">([\d,]+)<\/td>/i)?.[1]
-      ?.replace(",", ".");
+    if (
+      resultado.ok !== true ||
+      !Number.isFinite(Number(resultado.datos?.usd_bob))
+    ) {
+      throw new Error("Respuesta BCB inválida");
+    }
+
+    const valor = Number(resultado.datos.usd_bob);
+
+    console.log(
+      "✅ BCB obtenido:",
+      valor,
+      "Fecha de corte:",
+      resultado.datos.fecha_corte_usd
+    );
 
     return {
-      compra,
-      venta,
-      fecha
+      compra: valor,
+      venta: valor,
+      fecha: resultado.datos.fecha_corte_usd,
+      fuente: resultado.datos.fuente
     };
 
-  }catch(e){
-
-    console.log(e);
+  } catch (error) {
+    console.log(
+      "⚠️ Error obteniendo BCB:",
+      error.message
+    );
 
     return null;
   }
-
 }
-
 // ==========================
 // GUARDAR SUPABASE
 // ==========================
 
-async function guardarHistorial(
 
-  moneda,
+async function guardarHistorial(moneda, compra, venta) {
+  try {
+    if (
+      compra == null ||
+      venta == null ||
+      !Number.isFinite(Number(compra)) ||
+      !Number.isFinite(Number(venta))
+    ) {
+      console.log(`⚠️ ${moneda}: datos inválidos; no se guarda.`);
+      return false;
+    }
 
-  compra,
+    const { error } = await supabase
+      .from("cotizaciones")
+      .insert([{
+        moneda,
+        compra: Number(compra),
+        venta: Number(venta)
+      }]);
 
-  venta
-){
+    if (error) {
+      console.error(`❌ Error Supabase (${moneda}):`, error);
+      return false;
+    }
 
-  const { error } =
-
-    await supabase
-
-    .from("cotizaciones")
-
-    .insert([{
-
-      moneda,
-
-      compra,
-
-      venta
-
-    }]);
-
-  if(error){
-
-    console.log(error);
+    console.log(`✅ Supabase guardó ${moneda}`);
+    return true;
+  } catch (error) {
+    console.error(`❌ Excepción al guardar ${moneda}:`, error);
+    return false;
   }
 }
+
+
 
 // ==========================
 // OBTENER HISTORIAL
@@ -1193,14 +1206,10 @@ async function actualizarHistorial(){
 
     // BOLIVIA
 
-    const p2p =
+    const p2p = await getP2P_BOB();
 
-      await getP2P_BOB();
-   // Bcb
-    const bcb =
-
-      await getBCB();
-
+    // BCB: si el sitio falla, el resto del proceso debe continuar.
+    const bcb = await getBCB();
     // ARS → BOB
 
     let ars_bob = {
@@ -1210,13 +1219,17 @@ async function actualizarHistorial(){
       venta:null
     };
 
-    if(
-
+    if (
       cripto &&
-      p2p
-
-    ){
-
+      p2p &&
+      Number.isFinite(Number(cripto.venta)) &&
+      Number(cripto.venta) > 0 &&
+      Number.isFinite(Number(cripto.compra)) &&
+      Number(cripto.compra) > 0 &&
+      Number.isFinite(Number(p2p.compra)) &&
+      Number.isFinite(Number(p2p.venta))
+    ) {
+	
       ars_bob.compra =
 
         Number(
@@ -1262,28 +1275,35 @@ async function actualizarHistorial(){
 
       "cripto_ars",
 
-      cripto.compra,
+      cripto?.compra,
 
-      cripto.venta
+      cripto?.venta
     );
 
     await guardarHistorial(
 
       "p2p_bob",
 
-      p2p.compra,
+      p2p?.compra,
 
-      p2p.venta
+      p2p?.venta
     );
 
-    await guardarHistorial(
-
-      "bcb",
-
-      bcb.compra,
-
-      bcb.venta
-    );
+    if (
+      bcb &&
+      bcb.compra != null &&
+      bcb.venta != null &&
+      Number.isFinite(Number(bcb.compra)) &&
+      Number.isFinite(Number(bcb.venta))
+    ) {
+      await guardarHistorial(
+        "bcb",
+        Number(bcb.compra),
+        Number(bcb.venta)
+      );
+    } else {
+      console.log("⚠️ BCB no disponible; se omite su guardado.");
+    }
 
     await guardarHistorial(
 
@@ -2364,4 +2384,6 @@ app.listen(PORT, ()=>{
     "Servidor iniciado"
   );
 });
+
+
 
